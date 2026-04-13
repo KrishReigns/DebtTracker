@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
@@ -10,12 +9,13 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default function SignupPage() {
-  const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [done, setDone] = useState(false)
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName]   = useState('')
+  const [email, setEmail]         = useState('')
+  const [password, setPassword]   = useState('')
+  const [error, setError]         = useState('')
+  const [loading, setLoading]     = useState(false)
+  const [done, setDone]           = useState(false)
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
@@ -25,7 +25,14 @@ export default function SignupPage() {
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: `${location.origin}/auth/callback` },
+      options: {
+        emailRedirectTo: `${location.origin}/auth/callback`,
+        data: {
+          first_name: firstName.trim(),
+          last_name:  lastName.trim(),
+          full_name:  `${firstName.trim()} ${lastName.trim()}`.trim(),
+        },
+      },
     })
     if (error) {
       setError(error.message)
@@ -40,10 +47,11 @@ export default function SignupPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <Card className="w-full max-w-sm text-center">
           <CardHeader>
-            <div className="text-3xl mb-2">✅</div>
+            <div className="text-4xl mb-2">✅</div>
             <CardTitle>Check your email</CardTitle>
             <CardDescription>
-              We sent a confirmation link to <strong>{email}</strong>. Click it to activate your account.
+              We sent a confirmation link to <strong>{email}</strong>.<br />
+              Click it to activate your account.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -52,15 +60,37 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <div className="text-3xl mb-2">💰</div>
-          <CardTitle className="text-2xl">DebtTracker</CardTitle>
-          <CardDescription>Create your account</CardDescription>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-slate-100 px-4">
+      <Card className="w-full max-w-sm shadow-lg">
+        <CardHeader className="text-center pb-2">
+          <div className="text-4xl mb-2">💰</div>
+          <CardTitle className="text-2xl">Create Account</CardTitle>
+          <CardDescription>Track all your loans in one place</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSignup} className="space-y-4">
+          <form onSubmit={handleSignup} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="firstName">First Name</Label>
+                <Input
+                  id="firstName"
+                  placeholder="Ravi"
+                  value={firstName}
+                  onChange={e => setFirstName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="lastName">Last Name</Label>
+                <Input
+                  id="lastName"
+                  placeholder="Kumar"
+                  value={lastName}
+                  onChange={e => setLastName(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
             <div className="space-y-1">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -85,14 +115,14 @@ export default function SignupPage() {
               />
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full mt-1" disabled={loading}>
               {loading ? 'Creating account…' : 'Create Account'}
             </Button>
           </form>
         </CardContent>
-        <CardFooter className="justify-center text-sm text-muted-foreground">
+        <CardFooter className="justify-center text-sm text-muted-foreground pt-0">
           Already have an account?{' '}
-          <Link href="/login" className="ml-1 text-primary hover:underline">
+          <Link href="/login" className="ml-1 text-primary hover:underline font-medium">
             Sign in
           </Link>
         </CardFooter>

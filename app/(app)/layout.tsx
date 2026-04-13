@@ -7,9 +7,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const meta = user.user_metadata ?? {}
+  const displayName = meta.full_name || meta.first_name
+    ? `${meta.first_name ?? ''} ${meta.last_name ?? ''}`.trim()
+    : user.email ?? ''
+
   return (
     <div className="flex h-screen bg-gray-50">
-      <Sidebar userEmail={user.email ?? ''} />
+      <Sidebar displayName={displayName} userEmail={user.email ?? ''} />
       <main className="flex-1 overflow-y-auto">
         {/* Spacer for mobile top bar */}
         <div className="h-14 md:hidden" />

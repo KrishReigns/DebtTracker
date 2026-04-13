@@ -39,10 +39,18 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
   )
 }
 
-export default function Sidebar({ userEmail }: { userEmail: string }) {
+export default function Sidebar({ displayName, userEmail }: { displayName: string; userEmail: string }) {
   const pathname = usePathname()
   const router = useRouter()
   const [open, setOpen] = useState(false)
+
+  // Initials avatar from display name
+  const initials = displayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w[0].toUpperCase())
+    .join('')
 
   async function signOut() {
     const supabase = createClient()
@@ -51,9 +59,17 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
   }
 
   const header = (
-    <div className="p-4 border-b border-gray-200">
+    <div className="p-4 border-b border-gray-200 space-y-3">
       <div className="text-xl font-bold text-gray-900">💰 DebtTracker</div>
-      <div className="text-xs text-gray-500 mt-0.5 truncate">{userEmail}</div>
+      <div className="flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+          {initials}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-800 truncate">{displayName}</p>
+          <p className="text-xs text-gray-400 truncate">{userEmail}</p>
+        </div>
+      </div>
     </div>
   )
 
@@ -88,7 +104,10 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <span className="font-bold text-gray-900 text-base">💰 DebtTracker</span>
+        <span className="font-bold text-gray-900 text-base flex-1">💰 DebtTracker</span>
+        <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold">
+          {initials}
+        </div>
       </div>
 
       {/* ── Mobile drawer overlay ────────────────────────────────────── */}
@@ -102,9 +121,14 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
           {/* Drawer panel */}
           <aside className="relative w-64 max-w-[80vw] bg-white flex flex-col h-full shadow-xl animate-in slide-in-from-left duration-200">
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
-              <div>
-                <div className="text-lg font-bold text-gray-900">💰 DebtTracker</div>
-                <div className="text-xs text-gray-500 mt-0.5 truncate max-w-[180px]">{userEmail}</div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center text-white text-sm font-bold shrink-0">
+                  {initials}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">{displayName}</p>
+                  <p className="text-xs text-gray-400 truncate max-w-[140px]">{userEmail}</p>
+                </div>
               </div>
               <button
                 onClick={() => setOpen(false)}
