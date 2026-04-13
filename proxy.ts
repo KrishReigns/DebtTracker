@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 // Routes only accessible when authenticated
-const PROTECTED_PREFIXES = ['/dashboard', '/loans', '/payments', '/import']
+const PROTECTED_PREFIXES = ['/dashboard', '/loans', '/payments', '/import', '/profile']
 // Routes that redirect away when already authenticated
 const AUTH_ONLY = ['/login', '/signup']
 
