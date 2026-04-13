@@ -8,22 +8,100 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 
-export default function SignupPage() {
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName]   = useState('')
-  const [email, setEmail]         = useState('')
-  const [password, setPassword]   = useState('')
-  const [error, setError]         = useState('')
-  const [loading, setLoading]     = useState(false)
-  const [done, setDone]           = useState(false)
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
+const NAME_RE = /^[a-zA-Z\s'\-\.]+$/
+
+function passwordStrength(pw: string): { score: number; label: string; color: string } {
+  let score = 0
+  if (pw.length >= 8)              score++
+  if (pw.length >= 12)             score++
+  if (/[A-Z]/.test(pw))           score++
+  if (/[0-9]/.test(pw))           score++
+  if (/[^a-zA-Z0-9]/.test(pw))   score++
+  if (score <= 1) return { score, label: 'Weak',   color: 'bg-red-500' }
+  if (score <= 3) return { score, label: 'Fair',   color: 'bg-amber-400' }
+  return             { score, label: 'Strong', color: 'bg-emerald-500' }
+}
+
+// Map raw Supabase / network errors → friendly messages
+function friendlyError(msg: string): string {
+  const m = msg.toLowerCase()
+  if (m.includes('user already registered') || m.includes('already been registered'))
+    return 'An account with this email already exists. Try signing in instead.'
+  if (m.includes('invalid email'))
+    return 'Please enter a valid email address.'
+  if (m.includes('password') && m.includes('short'))
+    return 'Password must be at least 6 characters.'
+  if (m.includes('rate limit') || m.includes('too many'))
+    return 'Too many attempts. Please wait a minute and try again.'
+  if (m.includes('network') || m.includes('fetch'))
+    return 'Network error. Check your connection and try again.'
+  return msg // fallback: show as-is
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export default function SignupPage() {
+  const [firstName, setFirstName]       = useState('')
+  const [lastName, setLastName]         = useState('')
+  const [email, setEmail]               = useState('')
+  const [password, setPassword]         = useState('')
+  const [confirmPassword, setConfirm]   = useState('')
+  const [errors, setErrors]             = useState<Record<string, string>>({})
+  const [serverError, setServerError]   = useState('')
+  const [loading, setLoading]           = useState(false)
+  const [done, setDone]                 = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm]   = useState(false)
+
+  const strength = passwordStrength(password)
+
+  // ── Client-side field validation ────────────────────────────────────────────
+  function validate(): boolean {
+    const e: Record<string, string> = {}
+
+    if (!firstName.trim())
+      e.firstName = 'First name is required.'
+    else if (!NAME_RE.test(firstName.trim()))
+      e.firstName = 'Only letters, spaces, hyphens and apostrophes allowed.'
+
+    if (!lastName.trim())
+      e.lastName = 'Last name is required.'
+    else if (!NAME_RE.test(lastName.trim()))
+      e.lastName = 'Only letters, spaces, hyphens and apostrophes allowed.'
+
+    if (!email.trim())
+      e.email = 'Email is required.'
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      e.email = 'Please enter a valid email address.'
+
+    if (!password)
+      e.password = 'Password is required.'
+    else if (password.length < 6)
+      e.password = 'Password must be at least 6 characters.'
+    else if (strength.score <= 1)
+      e.password = 'Password is too weak. Add uppercase letters, numbers or symbols.'
+
+    if (!confirmPassword)
+      e.confirm = 'Please confirm your password.'
+    else if (password !== confirmPassword)
+      e.confirm = 'Passwords do not match.'
+
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  // ── Submit ───────────────────────────────────────────────────────────────────
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
+    setServerError('')
+    if (!validate()) return
+
     setLoading(true)
-    setError('')
     const supabase = createClient()
     const { error } = await supabase.auth.signUp({
-      email,
+      email: email.trim().toLowerCase(),
       password,
       options: {
         emailRedirectTo: `${location.origin}/auth/callback`,
@@ -34,41 +112,57 @@ export default function SignupPage() {
         },
       },
     })
+
     if (error) {
-      setError(error.message)
+      setServerError(friendlyError(error.message))
       setLoading(false)
     } else {
       setDone(true)
     }
   }
 
+  // ── Success screen ───────────────────────────────────────────────────────────
   if (done) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <Card className="w-full max-w-sm text-center">
-          <CardHeader>
-            <div className="text-4xl mb-2">✅</div>
-            <CardTitle>Check your email</CardTitle>
-            <CardDescription>
-              We sent a confirmation link to <strong>{email}</strong>.<br />
-              Click it to activate your account.
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-slate-100 px-4">
+        <Card className="w-full max-w-sm text-center shadow-lg">
+          <CardHeader className="pb-4">
+            <div className="text-5xl mb-3">✅</div>
+            <CardTitle className="text-xl">Check your email</CardTitle>
+            <CardDescription className="mt-1">
+              We sent a confirmation link to{' '}
+              <span className="font-semibold text-slate-700">{email}</span>.
+              <br />Click it to activate your account.
             </CardDescription>
           </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-400">
+              Didn&apos;t receive it? Check your spam folder or{' '}
+              <Link href="/signup" className="text-indigo-600 hover:underline">
+                try again
+              </Link>
+              .
+            </p>
+          </CardContent>
         </Card>
       </div>
     )
   }
 
+  // ── Form ─────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-slate-100 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-slate-100 px-4 py-8">
       <Card className="w-full max-w-sm shadow-lg">
         <CardHeader className="text-center pb-2">
           <div className="text-4xl mb-2">💰</div>
           <CardTitle className="text-2xl">Create Account</CardTitle>
           <CardDescription>Track all your loans in one place</CardDescription>
         </CardHeader>
+
         <CardContent>
-          <form onSubmit={handleSignup} className="space-y-3">
+          <form onSubmit={handleSignup} className="space-y-3" noValidate>
+
+            {/* Name row */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="firstName">First Name</Label>
@@ -76,9 +170,10 @@ export default function SignupPage() {
                   id="firstName"
                   placeholder="Ravi"
                   value={firstName}
-                  onChange={e => setFirstName(e.target.value)}
-                  required
+                  onChange={e => { setFirstName(e.target.value); setErrors(v => ({ ...v, firstName: '' })) }}
+                  className={errors.firstName ? 'border-red-400 focus-visible:ring-red-300' : ''}
                 />
+                {errors.firstName && <p className="text-xs text-red-500">{errors.firstName}</p>}
               </div>
               <div className="space-y-1">
                 <Label htmlFor="lastName">Last Name</Label>
@@ -86,11 +181,14 @@ export default function SignupPage() {
                   id="lastName"
                   placeholder="Kumar"
                   value={lastName}
-                  onChange={e => setLastName(e.target.value)}
-                  required
+                  onChange={e => { setLastName(e.target.value); setErrors(v => ({ ...v, lastName: '' })) }}
+                  className={errors.lastName ? 'border-red-400 focus-visible:ring-red-300' : ''}
                 />
+                {errors.lastName && <p className="text-xs text-red-500">{errors.lastName}</p>}
               </div>
             </div>
+
+            {/* Email */}
             <div className="space-y-1">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -98,28 +196,128 @@ export default function SignupPage() {
                 type="email"
                 placeholder="you@example.com"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
+                autoComplete="email"
+                onChange={e => { setEmail(e.target.value); setErrors(v => ({ ...v, email: '' })) }}
+                className={errors.email ? 'border-red-400 focus-visible:ring-red-300' : ''}
               />
+              {errors.email && <p className="text-xs text-red-500">{errors.email}</p>}
             </div>
+
+            {/* Password */}
             <div className="space-y-1">
               <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="Min 6 characters"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                minLength={6}
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Min 6 characters"
+                  value={password}
+                  autoComplete="new-password"
+                  onChange={e => { setPassword(e.target.value); setErrors(v => ({ ...v, password: '' })) }}
+                  className={errors.password ? 'border-red-400 focus-visible:ring-red-300 pr-10' : 'pr-10'}
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowPassword(v => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  {showPassword ? (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+              {/* Strength bar */}
+              {password.length > 0 && (
+                <div className="space-y-1">
+                  <div className="flex gap-1">
+                    {[1,2,3,4,5].map(i => (
+                      <div
+                        key={i}
+                        className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                          i <= strength.score ? strength.color : 'bg-slate-200'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <p className={`text-xs font-medium ${
+                    strength.score <= 1 ? 'text-red-500' :
+                    strength.score <= 3 ? 'text-amber-500' : 'text-emerald-600'
+                  }`}>
+                    {strength.label} password
+                  </p>
+                </div>
+              )}
+              {errors.password && <p className="text-xs text-red-500">{errors.password}</p>}
             </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            <Button type="submit" className="w-full mt-1" disabled={loading}>
+
+            {/* Confirm password */}
+            <div className="space-y-1">
+              <Label htmlFor="confirm">Confirm Password</Label>
+              <div className="relative">
+                <Input
+                  id="confirm"
+                  type={showConfirm ? 'text' : 'password'}
+                  placeholder="Re-enter password"
+                  value={confirmPassword}
+                  autoComplete="new-password"
+                  onChange={e => { setConfirm(e.target.value); setErrors(v => ({ ...v, confirm: '' })) }}
+                  className={errors.confirm ? 'border-red-400 focus-visible:ring-red-300 pr-10' : 'pr-10'}
+                />
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => setShowConfirm(v => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  {showConfirm ? (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+              {/* Live match indicator */}
+              {confirmPassword.length > 0 && (
+                <p className={`text-xs font-medium ${password === confirmPassword ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {password === confirmPassword ? '✓ Passwords match' : '✗ Passwords do not match'}
+                </p>
+              )}
+              {errors.confirm && <p className="text-xs text-red-500">{errors.confirm}</p>}
+            </div>
+
+            {/* Server error */}
+            {serverError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-600">
+                {serverError}
+                {serverError.includes('already exists') && (
+                  <span> <Link href="/login" className="underline font-medium">Sign in instead?</Link></span>
+                )}
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              className="w-full mt-1"
+              disabled={loading || (confirmPassword.length > 0 && password !== confirmPassword)}
+            >
               {loading ? 'Creating account…' : 'Create Account'}
             </Button>
           </form>
         </CardContent>
+
         <CardFooter className="justify-center text-sm text-muted-foreground pt-0">
           Already have an account?{' '}
           <Link href="/login" className="ml-1 text-primary hover:underline font-medium">
