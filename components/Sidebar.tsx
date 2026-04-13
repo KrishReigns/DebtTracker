@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -12,6 +13,23 @@ const NAV = [
   { href: '/payments', label: 'Payments',    icon: '📅' },
   { href: '/import',   label: 'Import Sheet',icon: '📥' },
 ]
+
+function Avatar({ src, initials, size = 8 }: { src: string | null; initials: string; size?: number }) {
+  const cls = `w-${size} h-${size} rounded-full shrink-0 overflow-hidden`
+  if (src) {
+    return (
+      <div className={cls}>
+        <Image src={src} alt="avatar" width={size * 4} height={size * 4} className="w-full h-full object-cover" />
+      </div>
+    )
+  }
+  const textSize = size <= 8 ? 'text-xs' : 'text-sm'
+  return (
+    <div className={`${cls} bg-indigo-600 flex items-center justify-center text-white font-bold ${textSize}`}>
+      {initials}
+    </div>
+  )
+}
 
 function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
   return (
@@ -39,7 +57,15 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
   )
 }
 
-export default function Sidebar({ displayName, userEmail }: { displayName: string; userEmail: string }) {
+export default function Sidebar({
+  displayName,
+  userEmail,
+  avatarUrl,
+}: {
+  displayName: string
+  userEmail: string
+  avatarUrl: string | null
+}) {
   const pathname = usePathname()
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -57,15 +83,13 @@ export default function Sidebar({ displayName, userEmail }: { displayName: strin
     router.push('/login')
   }
 
-  const profileLink = (
+  const profileTrigger = (
     <Link
       href="/profile"
       className="flex items-center gap-2.5 rounded-lg hover:bg-gray-50 transition-colors p-1 -m-1"
       title="View profile"
     >
-      <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-        {initials}
-      </div>
+      <Avatar src={avatarUrl} initials={initials} size={8} />
       <div className="min-w-0">
         <p className="text-sm font-semibold text-gray-800 truncate">{displayName}</p>
         <p className="text-xs text-gray-400 truncate">{userEmail}</p>
@@ -76,7 +100,7 @@ export default function Sidebar({ displayName, userEmail }: { displayName: strin
   const header = (
     <div className="p-4 border-b border-gray-200 space-y-3">
       <div className="text-xl font-bold text-gray-900">💰 DebtTracker</div>
-      {profileLink}
+      {profileTrigger}
     </div>
   )
 
@@ -93,14 +117,14 @@ export default function Sidebar({ displayName, userEmail }: { displayName: strin
 
   return (
     <>
-      {/* ── Desktop sidebar (md and above) ─────────────────────────── */}
+      {/* ── Desktop sidebar ──────────────────────────────────────────── */}
       <aside className="hidden md:flex w-56 bg-white border-r border-gray-200 flex-col shrink-0">
         {header}
         <NavLinks pathname={pathname} />
         {footer}
       </aside>
 
-      {/* ── Mobile top bar ──────────────────────────────────────────── */}
+      {/* ── Mobile top bar ───────────────────────────────────────────── */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-40 flex items-center gap-3 bg-white border-b border-gray-200 px-4 h-14 shadow-sm">
         <button
           onClick={() => setOpen(true)}
@@ -113,19 +137,16 @@ export default function Sidebar({ displayName, userEmail }: { displayName: strin
         </button>
         <span className="font-bold text-gray-900 text-base flex-1">💰 DebtTracker</span>
         <Link href="/profile">
-          <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xs font-bold cursor-pointer hover:ring-2 hover:ring-indigo-300 transition-all">
-            {initials}
+          <div className="hover:ring-2 hover:ring-indigo-300 rounded-full transition-all">
+            <Avatar src={avatarUrl} initials={initials} size={8} />
           </div>
         </Link>
       </div>
 
-      {/* ── Mobile drawer overlay ────────────────────────────────────── */}
+      {/* ── Mobile drawer ────────────────────────────────────────────── */}
       {open && (
         <div className="md:hidden fixed inset-0 z-50 flex">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => setOpen(false)}
-          />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setOpen(false)} />
           <aside className="relative w-64 max-w-[80vw] bg-white flex flex-col h-full shadow-xl animate-in slide-in-from-left duration-200">
             <div className="flex items-center justify-between p-4 border-b border-gray-200">
               <Link
@@ -133,9 +154,7 @@ export default function Sidebar({ displayName, userEmail }: { displayName: strin
                 onClick={() => setOpen(false)}
                 className="flex items-center gap-2.5 rounded-lg hover:bg-gray-50 transition-colors p-1 -m-1"
               >
-                <div className="w-9 h-9 rounded-full bg-indigo-600 flex items-center justify-center text-white text-sm font-bold shrink-0">
-                  {initials}
-                </div>
+                <Avatar src={avatarUrl} initials={initials} size={9} />
                 <div>
                   <p className="text-sm font-semibold text-gray-800">{displayName}</p>
                   <p className="text-xs text-gray-400 truncate max-w-[140px]">{userEmail}</p>

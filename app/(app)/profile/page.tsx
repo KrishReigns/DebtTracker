@@ -14,6 +14,8 @@ export default async function ProfilePage() {
   const isGoogleUser = user?.app_metadata?.provider === 'google' ||
     (user?.identities ?? []).some((id: { provider: string }) => id.provider === 'google')
 
+  const avatarUrl: string | null = meta.avatar_url ?? null
+
   return (
     <ProfileClient
       userId={user?.id ?? ''}
@@ -22,6 +24,7 @@ export default async function ProfilePage() {
       firstName={meta.first_name ?? ''}
       lastName={meta.last_name ?? ''}
       isGoogleUser={isGoogleUser}
+      avatarUrl={avatarUrl}
     />
   )
 }

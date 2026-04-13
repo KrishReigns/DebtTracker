@@ -16,9 +16,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     user.email?.split('@')[0] ||
     'User'
 
+  const avatarUrl: string | null = meta.avatar_url ?? null
+
   return (
     <div className="flex h-screen bg-gray-50">
-      <Sidebar displayName={displayName} userEmail={user.email ?? ''} />
+      <Sidebar displayName={displayName} userEmail={user.email ?? ''} avatarUrl={avatarUrl} />
       <main className="flex-1 overflow-y-auto">
         {/* Spacer for mobile top bar */}
         <div className="h-14 md:hidden" />

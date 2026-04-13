@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
@@ -15,8 +16,10 @@ interface Props {
   firstName: string
   lastName: string
   isGoogleUser: boolean
+  avatarUrl: string | null
 }
 
+// ── Delete Account Modal ──────────────────────────────────────────────────────
 function DeleteAccountModal({ onClose }: { onClose: () => void }) {
   const router = useRouter()
   const [confirm, setConfirm] = useState('')
@@ -81,31 +84,114 @@ function DeleteAccountModal({ onClose }: { onClose: () => void }) {
   )
 }
 
-export default function ProfileClient({ email, displayName, firstName, lastName, isGoogleUser }: Props) {
+// ── Main Component ────────────────────────────────────────────────────────────
+export default function ProfileClient({
+  userId,
+  email,
+  displayName,
+  firstName,
+  lastName,
+  isGoogleUser,
+  avatarUrl,
+}: Props) {
   const router = useRouter()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Avatar state ──────────────────────────────────────────────────────────
+  const [currentAvatar, setCurrentAvatar] = useState<string | null>(avatarUrl)
+  const [avatarLoading, setAvatarLoading] = useState(false)
+  const [avatarError, setAvatarError] = useState('')
+
+  // ── Name state ────────────────────────────────────────────────────────────
   const [first, setFirst] = useState(firstName)
   const [last, setLast]   = useState(lastName)
-  const [nameLoading, setNameLoading]   = useState(false)
-  const [nameSaved, setNameSaved]       = useState(false)
-  const [nameError, setNameError]       = useState('')
+  const [nameLoading, setNameLoading] = useState(false)
+  const [nameSaved, setNameSaved]     = useState(false)
+  const [nameError, setNameError]     = useState('')
 
-  const [currentPw, setCurrentPw]   = useState('')
-  const [newPw, setNewPw]           = useState('')
-  const [confirmPw, setConfirmPw]   = useState('')
-  const [pwLoading, setPwLoading]   = useState(false)
-  const [pwSaved, setPwSaved]       = useState(false)
-  const [pwError, setPwError]       = useState('')
+  // ── Password state ────────────────────────────────────────────────────────
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw]         = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [pwLoading, setPwLoading] = useState(false)
+  const [pwSaved, setPwSaved]     = useState(false)
+  const [pwError, setPwError]     = useState('')
 
+  // ── Reminder state ────────────────────────────────────────────────────────
+  const [reminderDays, setReminderDays] = useState<number>(3)
+  const [reminderLoading, setReminderLoading] = useState(false)
+  const [reminderSaved, setReminderSaved]     = useState(false)
+  const [reminderError, setReminderError]     = useState('')
+
+  // ── Delete state ─────────────────────────────────────────────────────────
   const [showDelete, setShowDelete] = useState(false)
 
   const initials = displayName.split(' ').filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
 
+  // Load reminder preference on mount
+  useEffect(() => {
+    async function loadSettings() {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('user_settings')
+        .select('reminder_days_before')
+        .eq('user_id', userId)
+        .single()
+      if (data) setReminderDays(data.reminder_days_before)
+    }
+    loadSettings()
+  }, [userId])
+
+  // ── Avatar handlers ───────────────────────────────────────────────────────
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 2 * 1024 * 1024) { setAvatarError('Image must be under 2 MB.'); return }
+
+    setAvatarLoading(true)
+    setAvatarError('')
+    const supabase = createClient()
+    const ext = file.name.split('.').pop() ?? 'jpg'
+    const path = `${userId}/avatar.${ext}`
+
+    const { error: uploadErr } = await supabase.storage
+      .from('avatars')
+      .upload(path, file, { upsert: true, contentType: file.type })
+
+    if (uploadErr) { setAvatarLoading(false); setAvatarError(uploadErr.message); return }
+
+    const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path)
+    // Bust cache by appending timestamp
+    const bustedUrl = `${publicUrl}?t=${Date.now()}`
+
+    const { error: metaErr } = await supabase.auth.updateUser({ data: { avatar_url: bustedUrl } })
+    setAvatarLoading(false)
+    if (metaErr) { setAvatarError(metaErr.message); return }
+    setCurrentAvatar(bustedUrl)
+    router.refresh()
+  }
+
+  async function removeAvatar() {
+    setAvatarLoading(true)
+    setAvatarError('')
+    const supabase = createClient()
+    // List and remove all files in user's folder
+    const { data: files } = await supabase.storage.from('avatars').list(userId)
+    if (files?.length) {
+      await supabase.storage.from('avatars').remove(files.map(f => `${userId}/${f.name}`))
+    }
+    const { error: metaErr } = await supabase.auth.updateUser({ data: { avatar_url: null } })
+    setAvatarLoading(false)
+    if (metaErr) { setAvatarError(metaErr.message); return }
+    setCurrentAvatar(null)
+    router.refresh()
+  }
+
+  // ── Name handler ──────────────────────────────────────────────────────────
   async function saveName(e: React.FormEvent) {
     e.preventDefault()
     if (!first.trim()) return
-    setNameLoading(true)
-    setNameError('')
-    setNameSaved(false)
+    setNameLoading(true); setNameError(''); setNameSaved(false)
     const supabase = createClient()
     const { error } = await supabase.auth.updateUser({
       data: {
@@ -121,15 +207,13 @@ export default function ProfileClient({ email, displayName, firstName, lastName,
     router.refresh()
   }
 
+  // ── Password handler ──────────────────────────────────────────────────────
   async function savePassword(e: React.FormEvent) {
     e.preventDefault()
     if (newPw !== confirmPw) { setPwError('Passwords do not match.'); return }
     if (newPw.length < 6) { setPwError('Password must be at least 6 characters.'); return }
-    setPwLoading(true)
-    setPwError('')
-    setPwSaved(false)
+    setPwLoading(true); setPwError(''); setPwSaved(false)
     const supabase = createClient()
-    // Re-authenticate first with current password
     const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password: currentPw })
     if (signInErr) { setPwLoading(false); setPwError('Current password is incorrect.'); return }
     const { error } = await supabase.auth.updateUser({ password: newPw })
@@ -138,6 +222,20 @@ export default function ProfileClient({ email, displayName, firstName, lastName,
     setPwSaved(true)
     setCurrentPw(''); setNewPw(''); setConfirmPw('')
     setTimeout(() => setPwSaved(false), 3000)
+  }
+
+  // ── Reminder handler ──────────────────────────────────────────────────────
+  async function saveReminder(e: React.FormEvent) {
+    e.preventDefault()
+    setReminderLoading(true); setReminderError(''); setReminderSaved(false)
+    const supabase = createClient()
+    const { error } = await supabase
+      .from('user_settings')
+      .upsert({ user_id: userId, reminder_days_before: reminderDays, updated_at: new Date().toISOString() })
+    setReminderLoading(false)
+    if (error) { setReminderError(error.message); return }
+    setReminderSaved(true)
+    setTimeout(() => setReminderSaved(false), 3000)
   }
 
   async function signOut() {
@@ -154,14 +252,44 @@ export default function ProfileClient({ email, displayName, firstName, lastName,
         <p className="text-sm text-slate-500 mt-1">Manage your account details</p>
       </div>
 
-      {/* Avatar + identity */}
+      {/* ── Avatar + Identity card ── */}
       <Card>
-        <CardContent className="pt-5 pb-4">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center text-white text-2xl font-bold shrink-0">
-              {initials}
+        <CardContent className="pt-5 pb-5">
+          <div className="flex items-center gap-5">
+            {/* Avatar with edit overlay */}
+            <div className="relative group shrink-0">
+              <div className="w-20 h-20 rounded-full overflow-hidden ring-2 ring-white shadow-md">
+                {currentAvatar ? (
+                  <Image src={currentAvatar} alt="Profile" width={80} height={80} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-indigo-600 flex items-center justify-center text-white text-2xl font-bold">
+                    {initials}
+                  </div>
+                )}
+              </div>
+              {/* Hover overlay */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={avatarLoading}
+                className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                title="Change photo"
+              >
+                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handleAvatarChange}
+              />
             </div>
-            <div>
+
+            {/* Identity info */}
+            <div className="flex-1 min-w-0">
               <p className="text-lg font-semibold text-slate-800">{displayName}</p>
               <p className="text-sm text-slate-500">{email}</p>
               <span className={`inline-flex items-center gap-1 mt-1.5 text-xs px-2.5 py-0.5 rounded-full font-medium ${
@@ -181,12 +309,33 @@ export default function ProfileClient({ email, displayName, firstName, lastName,
                   </>
                 ) : '✉ Email & Password'}
               </span>
+
+              {/* Avatar action buttons */}
+              <div className="flex items-center gap-2 mt-3">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={avatarLoading}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors font-medium disabled:opacity-50"
+                >
+                  {avatarLoading ? 'Uploading…' : currentAvatar ? 'Change Photo' : 'Upload Photo'}
+                </button>
+                {currentAvatar && (
+                  <button
+                    onClick={removeAvatar}
+                    disabled={avatarLoading}
+                    className="text-xs px-3 py-1.5 rounded-lg text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors font-medium disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              {avatarError && <p className="text-xs text-red-600 mt-1">{avatarError}</p>}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Edit name */}
+      {/* ── Edit Name ── */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Display Name</CardTitle>
@@ -212,7 +361,7 @@ export default function ProfileClient({ email, displayName, firstName, lastName,
         </CardContent>
       </Card>
 
-      {/* Change password — email users only */}
+      {/* ── Change Password (email users only) ── */}
       {!isGoogleUser && (
         <Card>
           <CardHeader className="pb-2">
@@ -248,7 +397,40 @@ export default function ProfileClient({ email, displayName, firstName, lastName,
         </div>
       )}
 
-      {/* Sign out + Danger zone */}
+      {/* ── EMI Reminders ── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">EMI Reminders</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={saveReminder} className="space-y-3">
+            <p className="text-sm text-slate-500">
+              Get an email reminder before each upcoming EMI payment.
+            </p>
+            <div className="space-y-1">
+              <Label htmlFor="reminderDays">Remind me</Label>
+              <select
+                id="reminderDays"
+                value={reminderDays}
+                onChange={e => setReminderDays(Number(e.target.value))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 bg-white h-10"
+              >
+                <option value={0}>Disabled (no reminders)</option>
+                <option value={1}>1 day before due date</option>
+                <option value={3}>3 days before due date</option>
+                <option value={7}>7 days before due date</option>
+              </select>
+            </div>
+            {reminderError && <p className="text-xs text-red-600">{reminderError}</p>}
+            {reminderSaved && <p className="text-xs text-emerald-600">✓ Reminder preference saved</p>}
+            <Button type="submit" disabled={reminderLoading} className="h-10">
+              {reminderLoading ? 'Saving…' : 'Save Preference'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* ── Account Actions ── */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Account Actions</CardTitle>
