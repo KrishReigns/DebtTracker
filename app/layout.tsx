@@ -4,11 +4,18 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'DebtTracker',
   description: 'Smart debt tracking with EMI schedules and payoff timelines',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'DebtTracker',
+  },
 }
 
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  themeColor: '#6366f1',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

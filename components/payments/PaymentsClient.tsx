@@ -112,7 +112,7 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
   return (
     <div className="space-y-4">
       {/* ── Summary tiles ────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         {([
           { key: 'overdue', label: 'Overdue', count: overdueCt, color: 'text-red-600' },
           { key: 'pending', label: 'Pending', count: pendingCt, color: 'text-amber-600' },
@@ -132,13 +132,13 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
       </div>
 
       {/* ── Filter bar ───────────────────────────────────────────────────── */}
-      <div className="flex gap-2 flex-wrap items-center">
-        <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm flex-1 sm:flex-none">
           {(['all', 'overdue', 'pending', 'paid', 'closed'] as Filter[]).map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 capitalize transition-colors ${
+              className={`flex-1 sm:flex-none px-3 py-2.5 capitalize transition-colors min-h-[44px] ${
                 filter === f
                   ? 'bg-indigo-600 text-white'
                   : 'text-slate-600 hover:bg-slate-50'
@@ -150,7 +150,7 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
         </div>
 
         <Select value={loanFilter} onValueChange={v => setLoanFilter(v ?? 'all')}>
-          <SelectTrigger className="w-52 h-9 border-slate-200">
+          <SelectTrigger className="w-full sm:w-52 h-11 border-slate-200">
             <span className="truncate text-sm text-slate-700">
               {loanFilter === 'all'
                 ? 'All Loans'

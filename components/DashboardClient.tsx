@@ -123,8 +123,8 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
           <p className="text-sm text-gray-500 mt-1">{loans.length} active loans</p>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant={viewCurrency === 'INR' ? 'default' : 'outline'} onClick={() => setViewCurrency('INR')}>₹ INR</Button>
-          <Button size="sm" variant={viewCurrency === 'USD' ? 'default' : 'outline'} onClick={() => setViewCurrency('USD')}>$ USD</Button>
+          <Button size="sm" className="h-10 px-4" variant={viewCurrency === 'INR' ? 'default' : 'outline'} onClick={() => setViewCurrency('INR')}>₹ INR</Button>
+          <Button size="sm" className="h-10 px-4" variant={viewCurrency === 'USD' ? 'default' : 'outline'} onClick={() => setViewCurrency('USD')}>$ USD</Button>
         </div>
       </div>
 

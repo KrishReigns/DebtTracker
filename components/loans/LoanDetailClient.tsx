@@ -188,7 +188,7 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
       {/* ── Loan metadata header ─────────────────────────────────────────── */}
       <Card>
         <CardContent className="pt-4 pb-3">
-          <div className="flex flex-wrap gap-x-6 gap-y-3 items-end">
+          <div className="flex flex-wrap gap-x-6 gap-y-3 items-start">
             <div>
               <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Status</p>
               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLORS[statusColorKey].badge}`}>
@@ -221,20 +221,20 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
                 <p className="text-sm font-medium text-slate-800">{loan.tenure_months} months</p>
               </div>
             )}
-            <div className="ml-auto flex flex-col items-end gap-1">
+            <div className="w-full sm:w-auto sm:ml-auto flex flex-col items-start sm:items-end gap-1">
               {closeError && closeConfirm && (
                 <p className="text-xs text-amber-600 max-w-xs text-right">{closeError}</p>
               )}
               <div className="flex gap-2">
                 {closeConfirm && (
-                  <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => { setCloseConfirm(false); setCloseError('') }}>
+                  <Button size="sm" variant="outline" className="text-xs h-9" onClick={() => { setCloseConfirm(false); setCloseError('') }}>
                     Cancel
                   </Button>
                 )}
                 <Button
                   size="sm"
                   variant={closeConfirm ? 'destructive' : 'outline'}
-                  className="text-xs h-7"
+                  className="text-xs h-9"
                   onClick={handleCloseReopen}
                 >
                   {loan.status === 'active'
