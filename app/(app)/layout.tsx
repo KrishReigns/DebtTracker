@@ -8,9 +8,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!user) redirect('/login')
 
   const meta = user.user_metadata ?? {}
-  const displayName = meta.full_name || meta.first_name
-    ? `${meta.first_name ?? ''} ${meta.last_name ?? ''}`.trim()
-    : user.email ?? ''
+  // Google OAuth sends 'name' or 'full_name'; email signup sends 'first_name'+'last_name'
+  const displayName =
+    meta.full_name ||
+    meta.name ||
+    (meta.first_name ? `${meta.first_name} ${meta.last_name ?? ''}`.trim() : '') ||
+    user.email?.split('@')[0] ||
+    'User'
 
   return (
     <div className="flex h-screen bg-gray-50">
