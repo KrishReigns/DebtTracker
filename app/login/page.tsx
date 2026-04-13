@@ -39,7 +39,7 @@ export default function LoginPage() {
       setError(friendlyError(error.message))
       setLoading(false)
     } else {
-      router.push('/')
+      router.push('/dashboard')
       router.refresh()
     }
   }

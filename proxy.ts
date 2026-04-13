@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 // Routes only accessible when authenticated
-const PROTECTED_PREFIXES = ['/', '/loans', '/payments', '/import']
+const PROTECTED_PREFIXES = ['/dashboard', '/loans', '/payments', '/import']
 // Routes that redirect away when already authenticated
 const AUTH_ONLY = ['/login', '/signup']
 
@@ -31,9 +31,7 @@ export async function proxy(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   const isAuthOnly = AUTH_ONLY.some(p => pathname.startsWith(p))
-  const isProtected = PROTECTED_PREFIXES.some(p =>
-    p === '/' ? pathname === '/' : pathname.startsWith(p)
-  )
+  const isProtected = PROTECTED_PREFIXES.some(p => pathname.startsWith(p))
 
   // Not logged in + protected route → login
   if (!user && isProtected) {
@@ -42,10 +40,10 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Already logged in + auth-only page (login/signup) → app home
+  // Already logged in + auth-only page (login/signup) → app dashboard
   if (user && isAuthOnly) {
     const url = request.nextUrl.clone()
-    url.pathname = '/'
+    url.pathname = '/dashboard'
     return NextResponse.redirect(url)
   }
 

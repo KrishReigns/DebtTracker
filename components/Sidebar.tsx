@@ -83,7 +83,7 @@ function DeleteAccountModal({ onClose }: { onClose: () => void }) {
 }
 
 const NAV = [
-  { href: '/',        label: 'Dashboard',   icon: '📊' },
+  { href: '/dashboard', label: 'Dashboard', icon: '📊' },
   { href: '/loans',   label: 'Loans',       icon: '🏦' },
   { href: '/payments',label: 'Payments',    icon: '📅' },
   { href: '/import',  label: 'Import Sheet',icon: '📥' },
@@ -93,7 +93,7 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
   return (
     <nav className="flex-1 p-3 space-y-1">
       {NAV.map(({ href, label, icon }) => {
-        const active = href === '/' ? pathname === '/' : pathname.startsWith(href)
+        const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
         return (
           <Link
             key={href}
