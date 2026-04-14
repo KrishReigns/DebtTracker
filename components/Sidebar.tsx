@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
@@ -15,11 +14,12 @@ const NAV = [
 ]
 
 function Avatar({ src, initials, size = 8 }: { src: string | null; initials: string; size?: number }) {
-  const cls = `w-${size} h-${size} rounded-full shrink-0 overflow-hidden`
+  const cls = `w-${size} h-${size} rounded-full shrink-0 overflow-hidden pointer-events-none`
   if (src) {
     return (
       <div className={cls}>
-        <Image src={src} alt="avatar" width={size * 4} height={size * 4} className="w-full h-full object-cover" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt="avatar" className="w-full h-full object-cover" />
       </div>
     )
   }
@@ -136,10 +136,8 @@ export default function Sidebar({
           </svg>
         </button>
         <span className="font-bold text-gray-900 text-base flex-1">💰 DebtTracker</span>
-        <Link href="/profile">
-          <div className="hover:ring-2 hover:ring-indigo-300 rounded-full transition-all">
-            <Avatar src={avatarUrl} initials={initials} size={8} />
-          </div>
+        <Link href="/profile" className="block rounded-full hover:ring-2 hover:ring-indigo-300 transition-all">
+          <Avatar src={avatarUrl} initials={initials} size={8} />
         </Link>
       </div>
 
