@@ -254,30 +254,37 @@ export default function ProfileClient({
 
       {/* ── Avatar + Identity card ── */}
       <Card>
-        <CardContent className="pt-5 pb-5">
-          <div className="flex items-center gap-5">
+        <CardContent className="pt-6 pb-6">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
             {/* Avatar with edit overlay */}
             <div className="relative group shrink-0">
-              <div className="w-20 h-20 rounded-full overflow-hidden ring-2 ring-white shadow-md">
+              <div className="w-24 h-24 rounded-full overflow-hidden ring-4 ring-slate-100 shadow-md bg-indigo-600">
                 {currentAvatar ? (
-                  <Image src={currentAvatar} alt="Profile" width={80} height={80} className="w-full h-full object-cover" />
+                  <img src={currentAvatar} alt={displayName} className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full bg-indigo-600 flex items-center justify-center text-white text-2xl font-bold">
+                  <div className="w-full h-full flex items-center justify-center text-white text-3xl font-bold">
                     {initials}
                   </div>
                 )}
               </div>
-              {/* Hover overlay */}
+              {/* Camera overlay on hover */}
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={avatarLoading}
-                className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer disabled:cursor-not-allowed"
                 title="Change photo"
               >
-                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
+                {avatarLoading ? (
+                  <svg className="w-6 h-6 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                  </svg>
+                ) : (
+                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                )}
               </button>
               <input
                 ref={fileInputRef}
@@ -289,10 +296,10 @@ export default function ProfileClient({
             </div>
 
             {/* Identity info */}
-            <div className="flex-1 min-w-0">
-              <p className="text-lg font-semibold text-slate-800">{displayName}</p>
-              <p className="text-sm text-slate-500">{email}</p>
-              <span className={`inline-flex items-center gap-1 mt-1.5 text-xs px-2.5 py-0.5 rounded-full font-medium ${
+            <div className="flex-1 min-w-0 text-center sm:text-left">
+              <p className="text-xl font-bold text-slate-800 truncate">{displayName}</p>
+              <p className="text-sm text-slate-500 truncate">{email}</p>
+              <span className={`inline-flex items-center gap-1 mt-2 text-xs px-2.5 py-1 rounded-full font-medium ${
                 isGoogleUser
                   ? 'bg-blue-50 text-blue-700 border border-blue-200'
                   : 'bg-slate-100 text-slate-600 border border-slate-200'
@@ -311,7 +318,7 @@ export default function ProfileClient({
               </span>
 
               {/* Avatar action buttons */}
-              <div className="flex items-center gap-2 mt-3">
+              <div className="flex items-center justify-center sm:justify-start gap-2 mt-3">
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={avatarLoading}
