@@ -81,14 +81,24 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
   const totalDebt = loanStats.reduce((s, l) => s + toView(l.outstandingPrincipal + l.accruedInterest, l.loan.currency), 0)
   const totalOriginal = loans.reduce((s, l) => s + toView(l.principal, l.currency), 0)
 
-  // Donut data
-  const donutData = loanStats
+  // Donut data — group loans < 3% of total into "Others"
+  const rawDonut = loanStats
     .filter(l => l.outstandingPrincipal > 0)
     .map(l => ({
       name: `${l.loan.lender_name} (${LOAN_TYPE_LABELS[l.loan.loan_type]})`,
       value: Math.round(toView(l.outstandingPrincipal, l.loan.currency)),
       color: LOAN_TYPE_COLORS[l.loan.loan_type],
     }))
+    .sort((a, b) => b.value - a.value)
+
+  const donutTotal = rawDonut.reduce((s, d) => s + d.value, 0)
+  const threshold = donutTotal * 0.03
+  const mainSlices = rawDonut.filter(d => d.value >= threshold)
+  const otherSlices = rawDonut.filter(d => d.value < threshold)
+  const othersValue = otherSlices.reduce((s, d) => s + d.value, 0)
+  const donutData = othersValue > 0
+    ? [...mainSlices, { name: `Others (${otherSlices.length} loans)`, value: othersValue, color: '#94a3b8' }]
+    : mainSlices
 
   // Monthly outflow (next 12 months) — fixed-EMI only, from schedule
   const monthlyOutflow: { month: string; INR: number; USD: number }[] = []
@@ -113,6 +123,30 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
     .sort((a, b) => (a.nextDueDate ?? '').localeCompare(b.nextDueDate ?? ''))
 
   const sym = CURRENCY_SYMBOLS[viewCurrency]
+
+  // Overall repayment progress
+  const totalRepaid = transactions.reduce((s, t) => {
+    const loan = loans.find(l => l.id === t.loan_id)
+    return s + (loan ? toView(t.amount, loan.currency) : 0)
+  }, 0)
+  const progressPct = totalOriginal > 0 ? Math.min(100, Math.round((totalRepaid / totalOriginal) * 100)) : 0
+
+  // Debt-free date — latest contractual_due_date among all active pending schedule rows
+  const pendingDates = schedules
+    .filter(s => s.status === 'pending')
+    .map(s => s.contractual_due_date)
+    .sort()
+  const debtFreeDate = pendingDates.length > 0 ? pendingDates[pendingDates.length - 1] : null
+  const debtFreeDateFmt = debtFreeDate
+    ? new Date(debtFreeDate).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+    : null
+
+  // Y-axis formatter
+  function fmtAxis(v: number) {
+    if (v >= 100000) return `${(v / 100000).toFixed(v % 100000 === 0 ? 0 : 1)}L`
+    if (v >= 1000) return `${(v / 1000).toFixed(0)}K`
+    return String(v)
+  }
 
   return (
     <div className="space-y-6">
@@ -148,19 +182,9 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
             </Card>
             <Card>
               <CardContent className="pt-4">
-                <p className="text-xs text-gray-500">Original Principal</p>
-                <p className="text-2xl font-bold mt-1">{sym}{Math.round(totalOriginal).toLocaleString()}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4">
                 <p className="text-xs text-gray-500">Repaid So Far</p>
-                <p className="text-2xl font-bold mt-1 text-green-600">
-                  {sym}{Math.round(transactions.reduce((s, t) => {
-                    const loan = loans.find(l => l.id === t.loan_id)
-                    return s + (loan ? toView(t.amount, loan.currency) : 0)
-                  }, 0)).toLocaleString()}
-                </p>
+                <p className="text-2xl font-bold mt-1 text-green-600">{sym}{Math.round(totalRepaid).toLocaleString()}</p>
+                <p className="text-xs text-gray-400 mt-1">{progressPct}% of principal</p>
               </CardContent>
             </Card>
             <Card>
@@ -169,7 +193,34 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                 <p className="text-2xl font-bold mt-1 text-orange-500">{upcomingFixed.length} EMIs</p>
               </CardContent>
             </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-xs text-gray-500">Debt-Free Date</p>
+                <p className="text-lg font-bold mt-1 text-indigo-600 leading-tight">{debtFreeDateFmt ?? '—'}</p>
+                <p className="text-xs text-gray-400 mt-1">last scheduled EMI</p>
+              </CardContent>
+            </Card>
           </div>
+
+          {/* Overall progress bar */}
+          <Card>
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-gray-700">Overall Repayment Progress</p>
+                <p className="text-sm font-bold text-indigo-600">{progressPct}%</p>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-3">
+                <div
+                  className="bg-gradient-to-r from-indigo-500 to-emerald-500 h-3 rounded-full transition-all duration-500"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-xs text-gray-400 mt-1.5">
+                <span>{sym}{Math.round(totalRepaid).toLocaleString()} repaid</span>
+                <span>{sym}{Math.round(totalOriginal).toLocaleString()} total</span>
+              </div>
+            </CardContent>
+          </Card>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Donut */}
@@ -205,11 +256,11 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={monthlyOutflow} barSize={12}>
                     <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} />
-                    <Tooltip />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtAxis} />
+                    <Tooltip formatter={(v) => `${Number(v).toLocaleString()}`} />
                     <Legend />
-                    <Bar dataKey="INR" fill="#6366f1" name="₹ INR" />
-                    <Bar dataKey="USD" fill="#10b981" name="$ USD" />
+                    <Bar dataKey="INR" fill="#6366f1" name="₹ INR" radius={[3,3,0,0]} />
+                    <Bar dataKey="USD" fill="#10b981" name="$ USD" radius={[3,3,0,0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
