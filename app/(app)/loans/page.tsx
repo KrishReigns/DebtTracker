@@ -1,11 +1,13 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase-server'
 import LoanCard from '@/components/loans/LoanCard'
+import LoansExportButton from '@/components/loans/LoansExportButton'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { computeFamilyLoanState } from '@/lib/calculations'
 import type { Loan, PaymentSchedule, PaymentTransaction } from '@/lib/types'
 import type { LoanCardSummary } from '@/components/loans/LoanCard'
+import type { LoansExportRow } from '@/lib/export'
 
 export default async function LoansPage() {
   const supabase = await createClient()
@@ -68,6 +70,29 @@ export default async function LoansPage() {
   const active = loans.filter(l => l.status === 'active')
   const closed = loans.filter(l => l.status !== 'active')
 
+  // Build export data
+  const exportData: LoansExportRow[] = loans.map(loan => {
+    const summary = summaries[loan.id]
+    const isFlexible = loan.repayment_mode === 'flexible_manual'
+    let totalPaid = 0
+    if (isFlexible) {
+      const loanTx = transactions.filter(t => t.loan_id === loan.id)
+      totalPaid = loanTx.reduce((sum, t) => sum + t.amount, 0)
+    } else {
+      const rows = schedules.filter(s => s.loan_id === loan.id)
+      totalPaid = rows
+        .filter(r => r.status === 'paid' || r.status === 'partial')
+        .reduce((sum, r) => sum + r.emi_amount, 0)
+    }
+    return {
+      loan,
+      outstandingPrincipal: summary?.remainingPrincipal ?? 0,
+      totalPaid,
+      scheduleCount: summary?.totalCount ?? 0,
+      paidCount: summary?.paidCount ?? 0,
+    }
+  })
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -75,7 +100,10 @@ export default async function LoansPage() {
           <h1 className="text-2xl font-bold text-gray-900">Loans</h1>
           <p className="text-sm text-gray-500 mt-1">{active.length} active · {closed.length} closed</p>
         </div>
-        <Link href="/loans/new" className={cn(buttonVariants())}>+ Add Loan</Link>
+        <div className="flex items-center gap-2">
+          <LoansExportButton data={exportData} />
+          <Link href="/loans/new" className={cn(buttonVariants())}>+ Add Loan</Link>
+        </div>
       </div>
 
       {active.length === 0 && (

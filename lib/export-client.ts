@@ -14,6 +14,8 @@ export {
   exportLoansPDF,
 } from './export'
 
+export type { LoansExportRow } from './export'
+
 import type { PaymentPlanRow, PaymentTransaction, Loan, FamilyLoanState } from './types'
 import type { FlexibleExportRow } from './export'
 import { buildFlexiblePlanner } from './calculations'
