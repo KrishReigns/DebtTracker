@@ -13,8 +13,11 @@ const NAV = [
   { href: '/import',   label: 'Import Sheet',icon: '📥' },
 ]
 
-function Avatar({ src, initials, size = 8 }: { src: string | null; initials: string; size?: number }) {
-  const cls = `w-${size} h-${size} rounded-full shrink-0 overflow-hidden pointer-events-none`
+function Avatar({ src, initials, large = false }: { src: string | null; initials: string; large?: boolean }) {
+  const cls = large
+    ? 'w-10 h-10 rounded-full shrink-0 overflow-hidden pointer-events-none'
+    : 'w-8 h-8 rounded-full shrink-0 overflow-hidden pointer-events-none'
+  const textSize = large ? 'text-sm' : 'text-xs'
   if (src) {
     return (
       <div className={cls}>
@@ -23,7 +26,6 @@ function Avatar({ src, initials, size = 8 }: { src: string | null; initials: str
       </div>
     )
   }
-  const textSize = size <= 8 ? 'text-xs' : 'text-sm'
   return (
     <div className={`${cls} bg-indigo-600 flex items-center justify-center text-white font-bold ${textSize}`}>
       {initials}
@@ -86,10 +88,10 @@ export default function Sidebar({
   const profileTrigger = (
     <Link
       href="/profile"
-      className="flex items-center gap-2.5 rounded-lg hover:bg-gray-50 transition-colors p-1 -m-1"
+      className="flex items-center gap-2.5 rounded-lg hover:bg-gray-50 transition-colors"
       title="View profile"
     >
-      <Avatar src={avatarUrl} initials={initials} size={8} />
+      <Avatar src={avatarUrl} initials={initials} />
       <div className="min-w-0">
         <p className="text-sm font-semibold text-gray-800 truncate">{displayName}</p>
         <p className="text-xs text-gray-400 truncate">{userEmail}</p>
@@ -137,7 +139,7 @@ export default function Sidebar({
         </button>
         <span className="font-bold text-gray-900 text-base flex-1">💰 DebtTracker</span>
         <Link href="/profile" className="block rounded-full hover:ring-2 hover:ring-indigo-300 transition-all">
-          <Avatar src={avatarUrl} initials={initials} size={8} />
+          <Avatar src={avatarUrl} initials={initials} />
         </Link>
       </div>
 
@@ -146,21 +148,21 @@ export default function Sidebar({
         <div className="md:hidden fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setOpen(false)} />
           <aside className="relative w-64 max-w-[80vw] bg-white flex flex-col h-full shadow-xl animate-in slide-in-from-left duration-200">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
               <Link
                 href="/profile"
                 onClick={() => setOpen(false)}
-                className="flex items-center gap-2.5 rounded-lg hover:bg-gray-50 transition-colors p-1 -m-1"
+                className="flex items-center gap-3 min-w-0 flex-1"
               >
-                <Avatar src={avatarUrl} initials={initials} size={9} />
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">{displayName}</p>
-                  <p className="text-xs text-gray-400 truncate max-w-[140px]">{userEmail}</p>
+                <Avatar src={avatarUrl} initials={initials} large />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 truncate">{displayName}</p>
+                  <p className="text-xs text-gray-400 truncate">{userEmail}</p>
                 </div>
               </Link>
               <button
                 onClick={() => setOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                className="ml-2 shrink-0 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
                 aria-label="Close menu"
               >
                 <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
