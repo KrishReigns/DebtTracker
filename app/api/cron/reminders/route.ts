@@ -13,7 +13,8 @@ export async function GET(request: NextRequest) {
   const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const serviceKey   = process.env.SUPABASE_SERVICE_ROLE_KEY!
   const resendKey    = process.env.RESEND_API_KEY!
-  const fromEmail    = process.env.RESEND_FROM_EMAIL ?? 'reminders@debttracker.app'
+  const fromEmail    = process.env.RESEND_FROM_EMAIL ?? 'reminders@mydebttracker.net'
+  const appUrl       = process.env.NEXT_PUBLIC_APP_URL ?? 'https://mydebttracker.net'
 
   if (!serviceKey || !resendKey) {
     return NextResponse.json({ error: 'Missing env vars' }, { status: 500 })
@@ -105,13 +106,13 @@ export async function GET(request: NextRequest) {
         <tbody>${paymentRows}</tbody>
       </table>
       <div style="margin-top:28px;text-align:center;">
-        <a href="${supabaseUrl.replace('supabase.co', '')}/payments" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:600;font-size:14px;">View Payments →</a>
+        <a href="${appUrl}/payments" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:600;font-size:14px;">View Payments →</a>
       </div>
     </div>
     <div style="padding:16px 32px;border-top:1px solid #f1f5f9;text-align:center;">
       <p style="margin:0;color:#94a3b8;font-size:12px;">
         You're receiving this because you enabled EMI reminders in DebtTracker.<br>
-        <a href="${supabaseUrl.replace('supabase.co', '')}/profile" style="color:#6366f1;text-decoration:none;">Manage reminder settings</a>
+        <a href="${appUrl}/profile" style="color:#6366f1;text-decoration:none;">Manage reminder settings</a>
       </p>
     </div>
   </div>
