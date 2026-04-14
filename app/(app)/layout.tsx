@@ -18,9 +18,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const avatarUrl: string | null = meta.avatar_url ?? null
 
+  // Count overdue payments for badge
+  const today = new Date().toISOString().split('T')[0]
+  const { count: overdueCount } = await supabase
+    .from('payment_schedules')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending')
+    .lt('contractual_due_date', today)
+
   return (
     <div className="flex h-screen bg-gray-50">
-      <Sidebar displayName={displayName} userEmail={user.email ?? ''} avatarUrl={avatarUrl} />
+      <Sidebar displayName={displayName} userEmail={user.email ?? ''} avatarUrl={avatarUrl} overdueCount={overdueCount ?? 0} />
       <main className="flex-1 overflow-y-auto">
         {/* Spacer for mobile top bar */}
         <div className="h-14 md:hidden" />

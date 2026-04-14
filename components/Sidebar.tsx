@@ -33,11 +33,12 @@ function Avatar({ src, initials, large = false }: { src: string | null; initials
   )
 }
 
-function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+function NavLinks({ pathname, onNavigate, overdueCount }: { pathname: string; onNavigate?: () => void; overdueCount: number }) {
   return (
     <nav className="flex-1 p-3 space-y-1">
       {NAV.map(({ href, label, icon }) => {
         const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
+        const showBadge = href === '/payments' && overdueCount > 0
         return (
           <Link
             key={href}
@@ -51,7 +52,12 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
             )}
           >
             <span className="text-base">{icon}</span>
-            {label}
+            <span className="flex-1">{label}</span>
+            {showBadge && (
+              <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center">
+                {overdueCount > 99 ? '99+' : overdueCount}
+              </span>
+            )}
           </Link>
         )
       })}
@@ -63,10 +69,12 @@ export default function Sidebar({
   displayName,
   userEmail,
   avatarUrl,
+  overdueCount = 0,
 }: {
   displayName: string
   userEmail: string
   avatarUrl: string | null
+  overdueCount?: number
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -122,7 +130,7 @@ export default function Sidebar({
       {/* ── Desktop sidebar ──────────────────────────────────────────── */}
       <aside className="hidden md:flex w-56 bg-white border-r border-gray-200 flex-col shrink-0">
         {header}
-        <NavLinks pathname={pathname} />
+        <NavLinks pathname={pathname} overdueCount={overdueCount} />
         {footer}
       </aside>
 
@@ -170,7 +178,7 @@ export default function Sidebar({
                 </svg>
               </button>
             </div>
-            <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
+            <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} overdueCount={overdueCount} />
             {footer}
           </aside>
         </div>

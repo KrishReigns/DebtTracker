@@ -302,6 +302,57 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
         )}
       </div>
 
+      {/* ── Insights panel (fixed-EMI only) ───────────────────────────────────── */}
+      {!isFlexible && totalRows > 0 && loan.status === 'active' && (
+        <Card className="border-indigo-100 bg-indigo-50/40">
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-3">💡 Loan Insights</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-slate-500">Total Cost of Loan</p>
+                <p className="text-base font-bold text-slate-800 mt-0.5">
+                  {formatCurrency(loan.principal + totalInterestFixedEMI, loan.currency)}
+                </p>
+                <p className="text-xs text-slate-400">principal + interest</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Interest Paid So Far</p>
+                <p className="text-base font-bold text-red-500 mt-0.5">
+                  {formatCurrency(
+                    scheduleRows.filter(r => r.status === 'paid').reduce((s, r) => s + r.interest_amount, 0),
+                    loan.currency
+                  )}
+                </p>
+                <p className="text-xs text-slate-400">of {formatCurrency(totalInterestFixedEMI, loan.currency)} total</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Interest Remaining</p>
+                <p className="text-base font-bold text-orange-500 mt-0.5">
+                  {formatCurrency(
+                    scheduleRows.filter(r => r.status !== 'paid').reduce((s, r) => s + r.interest_amount, 0),
+                    loan.currency
+                  )}
+                </p>
+                <p className="text-xs text-slate-400">still to be paid</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Prepay ₹1L → Save</p>
+                <p className="text-base font-bold text-emerald-600 mt-0.5">
+                  {formatCurrency(
+                    Math.round((remainingPrincipalFixedEMI > 100000
+                      ? scheduleRows.filter(r => r.status !== 'paid').reduce((s, r) => s + r.interest_amount, 0) *
+                        (100000 / remainingPrincipalFixedEMI)
+                      : 0)),
+                    loan.currency
+                  )}
+                </p>
+                <p className="text-xs text-slate-400">approx. interest saved</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Progress bar (fixed-EMI) ────────────────────────────────────────── */}
       {!isFlexible && totalRows > 0 && (
         <Card>
