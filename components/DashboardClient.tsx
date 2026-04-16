@@ -162,6 +162,29 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
         </div>
       </div>
 
+      {/* Overdue Alert Banner */}
+      {(() => {
+        const overdue = loanStats.filter(l => l.isOverdue)
+        if (overdue.length === 0) return null
+        const totalOverdue = overdue.reduce((s, l) => s + toView(l.nextDueAmount, l.loan.currency), 0)
+        return (
+          <Link href="/payments" className="block">
+            <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 hover:bg-red-100 transition-colors cursor-pointer">
+              <span className="text-xl mt-0.5">🚨</span>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-red-700 text-sm">
+                  {overdue.length} overdue EMI{overdue.length > 1 ? 's' : ''} — immediate attention needed
+                </p>
+                <p className="text-xs text-red-500 mt-0.5">
+                  {overdue.map(l => l.loan.lender_name).join(', ')} · Total overdue: {sym}{Math.round(totalOverdue).toLocaleString()}
+                </p>
+              </div>
+              <span className="text-red-400 text-sm font-medium shrink-0 mt-0.5">View →</span>
+            </div>
+          </Link>
+        )
+      })()}
+
       {loans.length === 0 ? (
         <div className="text-center py-20 text-gray-400">
           <div className="text-5xl mb-4">📊</div>
