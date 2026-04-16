@@ -1,8 +1,6 @@
 import { ImageResponse } from 'next/og'
 import { NextRequest } from 'next/server'
 
-export const dynamic = 'force-static'
-
 function IconSVG({ size }: { size: number }) {
   const radius = Math.round(size * 0.2)
   const fontSize = Math.round(size * 0.55)
