@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, LineChart, Line, ReferenceLine } from 'recharts'
 import RecordPaymentModal from './RecordPaymentModal'
 import EditPaymentModal from './EditPaymentModal'
 
@@ -33,6 +33,7 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
   const [editModal, setEditModal] = useState<{ open: boolean; transaction?: PaymentTransaction }>({ open: false })
   const [actionId, setActionId] = useState<string | null>(null)
   const [closeConfirm, setCloseConfirm] = useState(false)
+  const [extraPayment, setExtraPayment] = useState(0)
   const [closeError, setCloseError] = useState('')
   // Controlled state for planned pay date inputs — avoids uncontrolled→controlled warning
   const [plannedDates, setPlannedDates] = useState<Record<string, string>>(
@@ -77,6 +78,45 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
     Interest: Math.round(r.interest_amount),
     Principal: Math.round(r.principal_amount),
   }))
+
+  // Projected payoff chart — balance over time, normal vs with extra payment
+  const payoffChartData = (() => {
+    if (pendingRows.length === 0) return []
+    const monthlyRate = loan.interest_rate / 100 / 12
+    const baseEmi = loan.emi_amount ?? 0
+    const extraEmi = baseEmi + extraPayment
+
+    // Normal schedule from pending rows
+    const normal = pendingRows.map(r => ({
+      month: r.contractual_due_date.slice(0, 7),
+      Normal: Math.round(r.opening_balance),
+      WithExtra: null as number | null,
+    }))
+
+    // Simulate extra payment schedule
+    let balance = pendingRows[0]?.opening_balance ?? 0
+    const extraSim: { month: string; balance: number }[] = []
+    let i = 0
+    while (balance > 0 && i < normal.length + 120) {
+      const interest = balance * monthlyRate
+      const principal = Math.min(extraEmi - interest, balance)
+      extraSim.push({ month: normal[i]?.month ?? '', balance: Math.round(balance) })
+      balance = Math.max(0, balance - principal)
+      i++
+      if (balance <= 0) break
+    }
+
+    // Merge into single dataset sampled every 3 months
+    const merged = normal
+      .filter((_, idx) => idx % 3 === 0)
+      .map((d, idx) => ({
+        month: d.month,
+        Normal: d.Normal,
+        WithExtra: extraSim[idx * 3]?.balance ?? null,
+      }))
+
+    return merged
+  })()
 
   // ── Flexible helpers ────────────────────────────────────────────────────────
   const familyState = isFlexible
@@ -429,6 +469,76 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
                 <Bar dataKey="Principal" fill="#6366f1" />
                 <Bar dataKey="Interest" fill="#f59e0b" />
               </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Projected Payoff Chart ─────────────────────────────────────────── */}
+      {!isFlexible && payoffChartData.length > 0 && loan.status === 'active' && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <CardTitle className="text-sm text-slate-600">Projected Payoff</CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 shrink-0">Extra/month:</span>
+                <div className="relative w-36">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+                    {loan.currency === 'INR' ? '₹' : '$'}
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1000}
+                    value={extraPayment || ''}
+                    onChange={e => setExtraPayment(Math.max(0, Number(e.target.value)))}
+                    placeholder="0"
+                    className="w-full pl-6 pr-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  />
+                </div>
+              </div>
+            </div>
+            {extraPayment > 0 && (() => {
+              // Calculate months saved
+              const normalMonths = pendingRows.length
+              const monthlyRate = loan.interest_rate / 100 / 12
+              const extraEmi = (loan.emi_amount ?? 0) + extraPayment
+              let balance = pendingRows[0]?.opening_balance ?? 0
+              let extraMonths = 0
+              while (balance > 0 && extraMonths < normalMonths) {
+                const interest = balance * monthlyRate
+                balance = Math.max(0, balance - (extraEmi - interest))
+                extraMonths++
+              }
+              const monthsSaved = normalMonths - extraMonths
+              const interestSaved = pendingRows
+                .slice(extraMonths)
+                .reduce((s, r) => s + r.interest_amount, 0)
+              return (
+                <div className="flex gap-4 mt-1">
+                  <span className="text-xs text-emerald-600 font-medium">
+                    🗓 {monthsSaved} months earlier ({Math.floor(monthsSaved/12)}y {monthsSaved%12}m)
+                  </span>
+                  <span className="text-xs text-emerald-600 font-medium">
+                    💰 Save {formatCurrency(Math.round(interestSaved), loan.currency)} interest
+                  </span>
+                </div>
+              )
+            })()}
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={payoffChartData}>
+                <XAxis dataKey="month" tick={{ fontSize: 10 }} interval={Math.floor(payoffChartData.length / 6)} />
+                <YAxis tick={{ fontSize: 10 }} tickFormatter={v => v >= 100000 ? `${(v/100000).toFixed(1)}L` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                <Tooltip formatter={(v) => formatCurrency(Number(v), loan.currency)} />
+                <Legend />
+                <ReferenceLine y={0} stroke="#e2e8f0" />
+                <Line type="monotone" dataKey="Normal" stroke="#6366f1" strokeWidth={2} dot={false} name="Normal EMI" />
+                {extraPayment > 0 && (
+                  <Line type="monotone" dataKey="WithExtra" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="5 3" name={`+${formatCurrency(extraPayment, loan.currency)}/mo`} />
+                )}
+              </LineChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
