@@ -5,7 +5,6 @@ import LoansExportButton from '@/components/loans/LoansExportButton'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { computeFamilyLoanState } from '@/lib/calculations'
-import { getUserSubscription, isPro } from '@/lib/subscription'
 import type { Loan, PaymentSchedule, PaymentTransaction } from '@/lib/types'
 import type { LoanCardSummary } from '@/components/loans/LoanCard'
 import type { LoansExportRow } from '@/lib/export'
@@ -14,11 +13,7 @@ export default async function LoansPage() {
   const supabase = await createClient()
   const today = new Date().toISOString().split('T')[0]
 
-  const [{ data: loansRaw }, sub] = await Promise.all([
-    supabase.from('loans').select('*').order('created_at'),
-    getUserSubscription(),
-  ])
-  const proActive = isPro(sub)
+  const { data: loansRaw } = await supabase.from('loans').select('*').order('created_at')
   const loans = (loansRaw ?? []) as Loan[]
   const loanIds = loans.map(l => l.id)
 
@@ -106,7 +101,7 @@ export default async function LoansPage() {
           <p className="text-sm text-gray-500 mt-1">{active.length} active · {closed.length} closed</p>
         </div>
         <div className="flex items-center gap-2">
-          <LoansExportButton data={exportData} isPro={proActive} />
+          <LoansExportButton data={exportData} />
           <Link href="/loans/new" className={cn(buttonVariants())}>+ Add Loan</Link>
         </div>
       </div>

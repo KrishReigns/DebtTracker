@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase-server'
 import Sidebar from '@/components/Sidebar'
-import { getUserSubscription, isPro as checkPro } from '@/lib/subscription'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -19,16 +18,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const avatarUrl: string | null = meta.avatar_url ?? null
 
-  // Count overdue payments for badge + subscription tier (run in parallel)
+  // Count overdue payments for badge
   const today = new Date().toISOString().split('T')[0]
-  const [{ count: overdueCount }, sub] = await Promise.all([
-    supabase
-      .from('payment_schedules')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'pending')
-      .lt('contractual_due_date', today),
-    getUserSubscription(),
-  ])
+  const { count: overdueCount } = await supabase
+    .from('payment_schedules')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending')
+    .lt('contractual_due_date', today)
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -37,7 +33,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         userEmail={user.email ?? ''}
         avatarUrl={avatarUrl}
         overdueCount={overdueCount ?? 0}
-        isPro={checkPro(sub)}
       />
       <main className="flex-1 overflow-y-auto">
         {/* Spacer for mobile top bar */}
