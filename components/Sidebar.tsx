@@ -7,10 +7,10 @@ import { createClient } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 
 const NAV = [
-  { href: '/dashboard', label: 'Dashboard', icon: '📊' },
-  { href: '/loans',    label: 'Loans',       icon: '🏦' },
-  { href: '/payments', label: 'Payments',    icon: '📅' },
-  { href: '/import',   label: 'Import Sheet',icon: '📥' },
+  { href: '/dashboard', label: 'Dashboard',   icon: '📊' },
+  { href: '/loans',     label: 'Loans',       icon: '🏦' },
+  { href: '/payments',  label: 'Payments',    icon: '📅' },
+  { href: '/import',    label: 'Import Sheet',icon: '📥' },
 ]
 
 function Avatar({ src, initials, large = false }: { src: string | null; initials: string; large?: boolean }) {
@@ -70,11 +70,13 @@ export default function Sidebar({
   userEmail,
   avatarUrl,
   overdueCount = 0,
+  isPro = false,
 }: {
   displayName: string
   userEmail: string
   avatarUrl: string | null
   overdueCount?: number
+  isPro?: boolean
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -114,8 +116,33 @@ export default function Sidebar({
     </div>
   )
 
+  const upgradeBanner = !isPro ? (
+    <div className="mx-3 mb-2">
+      <Link
+        href="/upgrade"
+        className="block bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl px-3 py-2.5 text-center hover:opacity-90 transition-opacity"
+      >
+        <p className="text-white text-xs font-bold">⚡ Upgrade to Pro</p>
+        <p className="text-indigo-200 text-[10px] mt-0.5">Unlimited loans · Exports · Reminders</p>
+      </Link>
+    </div>
+  ) : null
+
   const footer = (
-    <div className="p-3 border-t border-gray-200">
+    <div className="p-3 border-t border-gray-200 space-y-1">
+      <Link
+        href="/upgrade"
+        className={cn(
+          'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+          pathname === '/upgrade'
+            ? 'bg-indigo-50 text-indigo-700'
+            : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+        )}
+      >
+        <span>⚡</span>
+        <span className="flex-1">{isPro ? 'Pro Plan' : 'Upgrade'}</span>
+        {isPro && <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-1.5 py-0.5 rounded-full">PRO</span>}
+      </Link>
       <button
         onClick={signOut}
         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
@@ -131,6 +158,7 @@ export default function Sidebar({
       <aside className="hidden md:flex w-56 bg-white border-r border-gray-200 flex-col shrink-0">
         {header}
         <NavLinks pathname={pathname} overdueCount={overdueCount} />
+        {upgradeBanner}
         {footer}
       </aside>
 
@@ -179,6 +207,7 @@ export default function Sidebar({
               </button>
             </div>
             <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} overdueCount={overdueCount} />
+            {upgradeBanner}
             {footer}
           </aside>
         </div>
