@@ -38,7 +38,7 @@ export default function LoanForm({ loan }: Props) {
   const defaultMode: RepaymentMode = loan?.repayment_mode
     ?? (loan?.loan_type === 'family' ? 'flexible_manual' : 'fixed_emi')
 
-  const [step, setStep] = useState(isEdit ? 1 : 0)
+  const [step, setStep] = useState(0)
   const [form, setForm] = useState({
     loan_type:        (loan?.loan_type ?? 'personal_loan') as LoanType,
     repayment_mode:   defaultMode,
@@ -570,9 +570,11 @@ export default function LoanForm({ loan }: Props) {
   const displaySteps = isEdit ? STEPS.slice(1) : STEPS
 
   function canProceed() {
-    if (step === 0) return true // loan type always selected
-    if (step === 1) return form.lender_name.trim().length > 0 && principal > 0
-    if (step === 2) return form.start_date.length > 0
+    if (!isEdit && step === 0) return true // loan type picker always valid
+    const detailsStep = isEdit ? 0 : 1
+    const termsStep   = isEdit ? 1 : 2
+    if (step === detailsStep) return form.lender_name.trim().length > 0 && principal > 0
+    if (step === termsStep)   return form.start_date.length > 0
     return true
   }
 
@@ -582,7 +584,7 @@ export default function LoanForm({ loan }: Props) {
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
           {displaySteps.map((label, i) => {
-            const idx = isEdit ? i + 1 : i
+            const idx = i
             const done = idx < step
             const active = idx === step
             return (
@@ -618,13 +620,12 @@ export default function LoanForm({ loan }: Props) {
           type="button"
           variant="outline"
           onClick={() => {
-            const minStep = isEdit ? 1 : 0
-            if (step <= minStep) router.back()
+            if (step === 0) router.back()
             else setStep(s => s - 1)
           }}
           className="px-5"
         >
-          {step <= (isEdit ? 1 : 0) ? 'Cancel' : '← Back'}
+          {step === 0 ? 'Cancel' : '← Back'}
         </Button>
 
         {step < (isEdit ? 2 : 3) ? (

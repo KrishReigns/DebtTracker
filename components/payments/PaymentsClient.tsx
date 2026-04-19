@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
-import { markScheduleRowPaid, markScheduleRowUnpaid } from '@/lib/loan-actions'
+import { markScheduleRowUnpaid } from '@/lib/loan-actions'
 import { computeFamilyLoanState, formatCurrency } from '@/lib/calculations'
 import { LOAN_TYPE_LABELS } from '@/lib/types'
 import type { Loan, PaymentSchedule, PaymentTransaction } from '@/lib/types'
@@ -88,18 +88,6 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
     && loanMap[loanFilter]?.status !== 'active'
 
   // ── Actions ───────────────────────────────────────────────────────────────
-  async function handleMarkPaid(s: PaymentSchedule) {
-    setActionId(s.id)
-    const supabase = createClient()
-    await markScheduleRowPaid(
-      s.loan_id, s.id, s.contractual_due_date,
-      s.emi_amount, s.principal_amount, s.interest_amount,
-      s.emi_amount, today, 'Marked paid from Payments page', null, supabase
-    )
-    router.refresh()
-    setActionId(null)
-  }
-
   async function handleMarkUnpaid(s: PaymentSchedule) {
     setActionId(s.id)
     const supabase = createClient()

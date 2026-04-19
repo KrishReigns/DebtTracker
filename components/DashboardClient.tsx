@@ -141,9 +141,10 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
     .map(s => s.contractual_due_date)
     .sort()
   const debtFreeDate = pendingDates.length > 0 ? pendingDates[pendingDates.length - 1] : null
+  const hasActiveFlexible = loans.some(l => l.repayment_mode === 'flexible_manual' && l.status === 'active')
   const debtFreeDateFmt = debtFreeDate
     ? new Date(debtFreeDate).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
-    : null
+    : hasActiveFlexible ? 'Ongoing' : null
 
   // Y-axis formatter
   function fmtAxis(v: number) {
@@ -227,7 +228,7 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               <CardContent className="pt-4">
                 <p className="text-xs text-gray-500">Debt-Free Date</p>
                 <p className="text-lg font-bold mt-1 text-indigo-600 leading-tight">{debtFreeDateFmt ?? '—'}</p>
-                <p className="text-xs text-gray-400 mt-1">last scheduled EMI</p>
+                <p className="text-xs text-gray-400 mt-1">{debtFreeDateFmt === 'Ongoing' ? 'flexible loan active' : 'last scheduled EMI'}</p>
               </CardContent>
             </Card>
           </div>

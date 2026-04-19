@@ -21,15 +21,13 @@ interface Props {
 }
 
 const LOAN_TYPE_BG: Record<string, string> = {
-  personal:  'from-indigo-50 to-indigo-100/40',
-  home:      'from-emerald-50 to-emerald-100/40',
-  vehicle:   'from-sky-50 to-sky-100/40',
-  education: 'from-violet-50 to-violet-100/40',
-  business:  'from-amber-50 to-amber-100/40',
-  gold:      'from-yellow-50 to-yellow-100/40',
-  credit:    'from-rose-50 to-rose-100/40',
-  family:    'from-teal-50 to-teal-100/40',
-  other:     'from-slate-50 to-slate-100/40',
+  personal_loan: 'from-indigo-50 to-indigo-100/40',
+  home_loan:     'from-emerald-50 to-emerald-100/40',
+  car_loan:      'from-sky-50 to-sky-100/40',
+  student_loan:  'from-violet-50 to-violet-100/40',
+  gold_loan:     'from-yellow-50 to-yellow-100/40',
+  credit_card:   'from-rose-50 to-rose-100/40',
+  family:        'from-teal-50 to-teal-100/40',
 }
 
 export default function LoanCard({ loan, summary }: Props) {
@@ -38,7 +36,7 @@ export default function LoanCard({ loan, summary }: Props) {
   const isCls = loan.status !== 'active'
   const progress = totalCount > 0 ? Math.round((paidCount / totalCount) * 100) : 0
   const accentColor = LOAN_TYPE_COLORS[loan.loan_type] ?? '#6366f1'
-  const bgGradient = LOAN_TYPE_BG[loan.loan_type] ?? LOAN_TYPE_BG.other
+  const bgGradient = LOAN_TYPE_BG[loan.loan_type] ?? 'from-slate-50 to-slate-100/40'
   const takenDate = loan.disbursement_date ?? loan.start_date
   const today = new Date().toISOString().split('T')[0]
   const isOverdue = !isCls && !!nextDueDate && nextDueDate < today

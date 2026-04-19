@@ -207,8 +207,10 @@ export async function exportSchedulePDF(loan: Loan, scheduleRows: PaymentSchedul
     headStyles: { fillColor: [99, 102, 241] },
     didParseCell: (data) => {
       if (data.column.index === 7 && data.section === 'body') {
-        if (data.cell.raw === 'PAID') data.cell.styles.textColor = [22, 163, 74]
-        else if (data.cell.raw === 'OVERDUE') data.cell.styles.textColor = [220, 38, 38]
+        if      (data.cell.raw === 'PAID')    data.cell.styles.textColor = [22, 163, 74]   // green
+        else if (data.cell.raw === 'OVERDUE') data.cell.styles.textColor = [220, 38, 38]   // red
+        else if (data.cell.raw === 'PARTIAL') data.cell.styles.textColor = [217, 119, 6]   // amber
+        else if (data.cell.raw === 'SKIPPED') data.cell.styles.textColor = [107, 114, 128] // gray
       }
     },
     foot: [[
