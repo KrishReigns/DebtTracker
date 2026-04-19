@@ -133,6 +133,20 @@ export default function LoanCard({ loan, summary }: Props) {
                   {formatCurrency(remainingPrincipal + (accruedInterest ?? 0), loan.currency)}
                 </span>
               </div>
+              {loan.principal > 0 && remainingPrincipal < loan.principal && (
+                <div className="space-y-1.5 pt-0.5">
+                  <div className="flex justify-between text-xs text-slate-400">
+                    <span>{paidCount} payment{paidCount !== 1 ? 's' : ''} made</span>
+                    <span>{Math.round(((loan.principal - remainingPrincipal) / loan.principal) * 100)}% repaid</span>
+                  </div>
+                  <div className="relative h-2 rounded-full bg-slate-200 overflow-hidden">
+                    <div
+                      className="absolute left-0 top-0 h-full rounded-full transition-all duration-500"
+                      style={{ width: `${Math.round(((loan.principal - remainingPrincipal) / loan.principal) * 100)}%`, backgroundColor: accentColor }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
           ) : (

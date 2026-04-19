@@ -304,6 +304,21 @@ export default function ImportPage() {
     for (let idx = 0; idx < preview.length; idx++) {
       const loan = preview[idx]
       setProgress({ current: idx + 1, total: preview.length })
+
+      // Check for existing loan with same lender + start date
+      const { data: existing } = await supabase
+        .from('loans')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('lender_name', loan.lender_name)
+        .eq('start_date', loan.start_date)
+        .maybeSingle()
+
+      if (existing) {
+        // Skip duplicate silently
+        continue
+      }
+
       const isFlexible = loan.repayment_mode === 'flexible_manual'
       const emi = isFlexible ? null
         : (loan.emi_amount ?? calculateEMI(loan.principal, loan.interest_rate, loan.tenure_months))

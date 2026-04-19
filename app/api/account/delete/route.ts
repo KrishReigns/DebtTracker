@@ -36,6 +36,16 @@ export async function DELETE() {
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
+  // Delete avatar files for this user
+  const { data: avatarFiles } = await admin.storage
+    .from('avatars')
+    .list(user.id)
+  if (avatarFiles?.length) {
+    await admin.storage
+      .from('avatars')
+      .remove(avatarFiles.map(f => `${user.id}/${f.name}`))
+  }
+
   // Loans + all child records cascade automatically (FK CASCADE DELETE)
   const { error } = await admin.auth.admin.deleteUser(user.id)
   if (error) {

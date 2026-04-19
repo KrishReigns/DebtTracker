@@ -349,7 +349,7 @@ export default function ProfileClient({
         </CardHeader>
         <CardContent>
           <form onSubmit={saveName} className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="first">First Name</Label>
                 <Input id="first" value={first} onChange={e => setFirst(e.target.value)} required className="h-10" />
