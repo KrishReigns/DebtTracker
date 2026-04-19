@@ -120,6 +120,65 @@ export default function LoanForm({ loan }: Props) {
     if (isEdit) {
       const { error: err } = await supabase.from('loans').update(payload).eq('id', loan!.id)
       if (err) { setError(err.message); setLoading(false); return }
+
+      // Regenerate pending schedule rows from updated loan terms
+      if (!isFlexible && principal > 0) {
+        // Fetch paid/partial/skipped rows (keep as historical record)
+        const { data: paidRows } = await supabase
+          .from('payment_schedules')
+          .select('*')
+          .eq('loan_id', loan!.id)
+          .in('status', ['paid', 'partial', 'skipped'])
+          .order('installment_number', { ascending: true })
+
+        const paid = paidRows ?? []
+        const paidCount = paid.length
+        const lastPaid = paid[paid.length - 1]
+
+        // Delete all pending rows
+        await supabase
+          .from('payment_schedules')
+          .delete()
+          .eq('loan_id', loan!.id)
+          .eq('status', 'pending')
+
+        // Starting balance = closing balance of last paid row, or full principal
+        const startBalance = lastPaid ? Number(lastPaid.closing_balance) : principal
+        const remainingTenure = tenure - paidCount
+
+        if (remainingTenure > 0 && startBalance > 0) {
+          // Start date: if paid rows exist, derive next due date from last paid date + 1 month
+          // adjusted to the new payment_day; otherwise use form.start_date
+          let schedStartDate = form.start_date
+          if (lastPaid) {
+            const lastDate = new Date(lastPaid.contractual_due_date)
+            const next = new Date(lastDate)
+            next.setMonth(next.getMonth() + 1)
+            const payDay = parseInt(form.payment_day) || 1
+            next.setDate(Math.min(payDay, new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate()))
+            schedStartDate = next.toISOString().split('T')[0]
+          }
+
+          const newRows = generateSchedule(
+            startBalance, rate, remainingTenure, schedStartDate,
+            form.interest_type, parseFloat(form.emi_amount) || autoEMI || undefined
+          )
+
+          const scheduleRows = newRows.map((row, i) => ({
+            loan_id: loan!.id,
+            installment_number: paidCount + i + 1,
+            contractual_due_date: row.date,
+            opening_balance: row.openingBalance,
+            emi_amount: row.emi,
+            principal_amount: row.principal,
+            interest_amount: row.interest,
+            closing_balance: row.closingBalance,
+            rate,
+            status: 'pending',
+          }))
+          await supabase.from('payment_schedules').insert(scheduleRows)
+        }
+      }
     } else {
       const { data, error: err } = await supabase.from('loans').insert(payload).select('id').single()
       if (err) { setError(err.message); setLoading(false); return }
@@ -216,7 +275,7 @@ export default function LoanForm({ loan }: Props) {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label>Currency</Label>
           <Select value={form.currency} onValueChange={v => set('currency', v ?? 'INR')}>
@@ -281,7 +340,7 @@ export default function LoanForm({ loan }: Props) {
         <p className="text-sm text-slate-500 mt-0.5">Interest rate, dates and repayment schedule</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label htmlFor="rate">Interest Rate (% p.a.)</Label>
           <div className="relative">
@@ -311,7 +370,7 @@ export default function LoanForm({ loan }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label htmlFor="start">Start / Taken Date</Label>
           <Input
@@ -337,7 +396,7 @@ export default function LoanForm({ loan }: Props) {
 
       {!isFlexible && (
         <>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label htmlFor="first_emi">First EMI Date <span className="text-slate-400 font-normal">(optional)</span></Label>
               <Input
@@ -359,7 +418,7 @@ export default function LoanForm({ loan }: Props) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label htmlFor="emi">
                 EMI Amount
