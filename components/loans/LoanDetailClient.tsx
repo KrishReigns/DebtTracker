@@ -707,7 +707,7 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
                       <td className="py-1.5 pr-3">
                         {isPaid || isSkipped ? (
                           // Paid/skipped: show formatted date read-only
-                          <span className={`text-xs ${NUM_COLORS.paid}`}>{formatDate(row.planned_pay_date)}</span>
+                          <span className={`text-xs ${NUM_COLORS.paid}`}>{row.planned_pay_date ? formatDate(row.planned_pay_date) : '—'}</span>
                         ) : editingDateRowId === row.id || !plannedDates[row.id] ? (
                           // Edit mode OR no date set yet: show native date picker
                           <Input

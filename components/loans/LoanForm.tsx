@@ -617,10 +617,14 @@ export default function LoanForm({ loan }: Props) {
         <Button
           type="button"
           variant="outline"
-          onClick={() => step === 0 ? router.back() : setStep(s => s - 1)}
+          onClick={() => {
+            const minStep = isEdit ? 1 : 0
+            if (step <= minStep) router.back()
+            else setStep(s => s - 1)
+          }}
           className="px-5"
         >
-          {step === 0 ? 'Cancel' : '← Back'}
+          {step <= (isEdit ? 1 : 0) ? 'Cancel' : '← Back'}
         </Button>
 
         {step < (isEdit ? 2 : 3) ? (

@@ -117,10 +117,13 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
     monthlyOutflow.push({ month: monthStr.slice(5), INR: Math.round(inr), USD: Math.round(usd) })
   }
 
-  // Upcoming overdue / due-soon (fixed-EMI pending rows in next 30 days)
+  // Upcoming (due in next 30 days, not overdue) + overdue (past due, unpaid)
   const in30 = new Date(new Date(today).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   const upcomingFixed = loanStats
-    .filter(l => l.loan.repayment_mode === 'fixed_emi' && l.nextDueDate && l.nextDueDate <= in30)
+    .filter(l => l.loan.repayment_mode === 'fixed_emi' && l.nextDueDate && l.nextDueDate >= today && l.nextDueDate <= in30)
+    .sort((a, b) => (a.nextDueDate ?? '').localeCompare(b.nextDueDate ?? ''))
+  const overdueFixed = loanStats
+    .filter(l => l.isOverdue)
     .sort((a, b) => (a.nextDueDate ?? '').localeCompare(b.nextDueDate ?? ''))
 
   const sym = CURRENCY_SYMBOLS[viewCurrency]
@@ -215,6 +218,9 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               <CardContent className="pt-4">
                 <p className="text-xs text-gray-500">Due Next 30 Days</p>
                 <p className="text-2xl font-bold mt-1 text-orange-500">{upcomingFixed.length} EMIs</p>
+                {overdueFixed.length > 0 && (
+                  <p className="text-xs text-red-500 mt-1">{overdueFixed.length} overdue</p>
+                )}
               </CardContent>
             </Card>
             <Card>
@@ -291,13 +297,15 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
             </Card>
           </div>
 
-          {/* Upcoming payments */}
-          {upcomingFixed.length > 0 && (
+          {/* Overdue + upcoming payments */}
+          {(overdueFixed.length > 0 || upcomingFixed.length > 0) && (
             <Card>
-              <CardHeader><CardTitle className="text-sm">Upcoming EMIs (next 30 days)</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="text-sm">
+                {overdueFixed.length > 0 ? 'Overdue & Upcoming EMIs' : 'Upcoming EMIs (next 30 days)'}
+              </CardTitle></CardHeader>
               <CardContent>
                 <div className="divide-y divide-gray-100">
-                  {upcomingFixed.map(({ loan, nextDueDate, nextDueAmount, isOverdue }) => (
+                  {[...overdueFixed, ...upcomingFixed].map(({ loan, nextDueDate, nextDueAmount, isOverdue }) => (
                     <div key={loan.id} className="flex items-center justify-between py-2">
                       <div>
                         <Link href={`/loans/${loan.id}`} className="text-sm font-medium hover:text-indigo-600">

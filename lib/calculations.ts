@@ -9,10 +9,13 @@ import type { AmortizationRow, FamilyLoanState, InterestType, PaymentTransaction
  * Standard reducing-balance EMI:  P × r × (1+r)^n / ((1+r)^n - 1)
  */
 export function calculateEMI(principal: number, annualRate: number, tenureMonths: number): number {
+  if (!tenureMonths || tenureMonths <= 0) return 0
   if (annualRate === 0) return round(principal / tenureMonths)
   const r = annualRate / 100 / 12
   const n = tenureMonths
-  return round((principal * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1))
+  const denom = Math.pow(1 + r, n) - 1
+  if (denom === 0) return 0
+  return round((principal * r * Math.pow(1 + r, n)) / denom)
 }
 
 /** Reducing-balance amortization schedule */
@@ -100,8 +103,11 @@ export function generateCreditCardSchedule(
 
   while (current > 0.01 && month <= 360) {
     const interest = round(current * r)
-    const principalPart = round(Math.min(monthlyPayment - interest, current))
+    // If payment doesn't cover interest, cap principal reduction at 0 (don't let balance grow)
+    const principalPart = round(Math.max(0, Math.min(monthlyPayment - interest, current)))
     const closing = round(Math.max(current - principalPart, 0))
+    // Safety: if payment can't cover interest, break to avoid infinite growth
+    if (principalPart <= 0 && closing >= current) break
 
     rows.push({
       month,

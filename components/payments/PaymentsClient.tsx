@@ -74,7 +74,10 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
     if (filter === 'overdue') return s.computedStatus === 'overdue'
     if (filter === 'pending') return s.computedStatus === 'pending' || s.computedStatus === 'partial'
     if (filter === 'paid') return s.computedStatus === 'paid'
-    return s.computedStatus !== 'pending' || s.contractual_due_date <= cutoffStr
+    // "All" tab: show everything except far-future pending (beyond 3 months) to keep the list manageable
+    // Use "Pending" tab to see all future scheduled payments
+    if (filter === 'all') return s.computedStatus !== 'pending' || s.contractual_due_date <= cutoffStr
+    return true
   })
 
   const showFlexible = filter !== 'overdue' && filter !== 'pending' && filter !== 'paid' && filter !== 'closed'

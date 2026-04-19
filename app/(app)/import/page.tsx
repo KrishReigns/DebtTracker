@@ -333,21 +333,25 @@ export default function ImportPage() {
           loan.principal, loan.interest_rate, loan.tenure_months,
           loan.start_date, loan.interest_type, emi ?? undefined
         )
-        await supabase.from('payments').insert(schedule.map(row => ({
+        const { error: paymentsErr } = await supabase.from('payments').insert(schedule.map(row => ({
           loan_id: inserted.id, due_date: row.date, amount_due: row.emi,
           principal_component: row.principal, interest_component: row.interest, status: 'pending',
         })))
-        await supabase.from('payment_schedules').insert(schedule.map((row, i) => ({
+        if (paymentsErr) console.warn('payments insert failed for loan', inserted.id, paymentsErr.message)
+
+        const { error: scheduleErr } = await supabase.from('payment_schedules').insert(schedule.map((row, i) => ({
           loan_id: inserted.id, installment_number: i + 1,
           contractual_due_date: row.date, opening_balance: row.openingBalance,
           emi_amount: row.emi, principal_amount: row.principal, interest_amount: row.interest,
           closing_balance: row.closingBalance, rate: loan.interest_rate, status: 'pending',
         })))
+        if (scheduleErr) { setImportError(`Schedule insert failed: ${scheduleErr.message}`); setLoading(false); return }
       }
     }
 
     setDone(true); setLoading(false)
-    setTimeout(() => router.push('/loans'), 2000)
+    const t = setTimeout(() => router.push('/loans'), 2000)
+    return () => clearTimeout(t)
   }
 
   // ── Done screen ───────────────────────────────────────────────────────────
