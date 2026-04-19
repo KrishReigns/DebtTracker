@@ -176,7 +176,7 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
             .update({ status: 'skipped' })
             .eq('id', row.id)
           await supabase.from('payments')
-            .update({ status: 'overdue' })
+            .update({ status: 'paid' })
             .eq('loan_id', loan.id)
             .eq('due_date', row.contractual_due_date)
         }

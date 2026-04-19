@@ -65,10 +65,11 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
       accruedInterest = state.accruedInterest
       // No fixed due date for flexible loans
     } else {
-      // Fixed-EMI: outstanding = opening_balance of first pending schedule row
-      const pendingRows = loanSchedule.filter(r => r.status !== 'paid')
+      // Fixed-EMI: outstanding = opening_balance of first non-paid, non-skipped row
+      const pendingRows = loanSchedule.filter(r => r.status !== 'paid' && r.status !== 'skipped')
       outstandingPrincipal = pendingRows[0]?.opening_balance ?? 0
-      if (pendingRows[0]) {
+      // Only mark overdue / show next due if loan is still active
+      if (pendingRows[0] && loan.status === 'active') {
         nextDueDate = pendingRows[0].contractual_due_date
         nextDueAmount = pendingRows[0].emi_amount
         isOverdue = nextDueDate < today
@@ -131,9 +132,9 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
   }, 0)
   const progressPct = totalOriginal > 0 ? Math.min(100, Math.round((totalRepaid / totalOriginal) * 100)) : 0
 
-  // Debt-free date — latest contractual_due_date among all active pending schedule rows
+  // Debt-free date — latest due date among unpaid rows (pending + partial)
   const pendingDates = schedules
-    .filter(s => s.status === 'pending')
+    .filter(s => s.status === 'pending' || s.status === 'partial')
     .map(s => s.contractual_due_date)
     .sort()
   const debtFreeDate = pendingDates.length > 0 ? pendingDates[pendingDates.length - 1] : null

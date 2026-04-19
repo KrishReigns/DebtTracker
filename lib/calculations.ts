@@ -169,26 +169,37 @@ function generateBulletSchedule(
   }]
 }
 
-/** Dispatcher: pick schedule generator by interest type */
+/** Dispatcher: pick schedule generator by interest type.
+ *  firstEmiDate: when the first installment is due. If omitted, defaults to
+ *  start_date + 1 month (standard bank behaviour — loan taken in April, first
+ *  EMI due in May).  Pass an explicit value when the user has set first_emi_date.
+ */
 export function generateSchedule(
   principal: number,
   annualRate: number,
   tenureMonths: number,
   startDate: string,
   interestType: InterestType,
-  emiOverride?: number
+  emiOverride?: number,
+  firstEmiDate?: string
 ): AmortizationRow[] {
+  // The date that schedule rows are anchored to: first EMI date if supplied,
+  // otherwise one month after the loan start date.
+  const scheduleStart = firstEmiDate && firstEmiDate.trim()
+    ? firstEmiDate.trim()
+    : format(addMonths(parseISO(startDate), 1), 'yyyy-MM-dd')
+
   switch (interestType) {
     case 'flat':
-      return generateFlatRateSchedule(principal, annualRate, tenureMonths, startDate, emiOverride)
+      return generateFlatRateSchedule(principal, annualRate, tenureMonths, scheduleStart, emiOverride)
     case 'revolving':
-      return generateCreditCardSchedule(principal, annualRate, emiOverride ?? principal / 12, startDate)
+      return generateCreditCardSchedule(principal, annualRate, emiOverride ?? principal / 12, scheduleStart)
     case 'simple':
-      return generateSimpleInterestSchedule(principal, annualRate / 12, tenureMonths || 12, startDate)
+      return generateSimpleInterestSchedule(principal, annualRate / 12, tenureMonths || 12, scheduleStart)
     case 'bullet':
-      return generateBulletSchedule(principal, annualRate, tenureMonths || 12, startDate)
+      return generateBulletSchedule(principal, annualRate, tenureMonths || 12, startDate) // bullet uses start+tenure
     default:
-      return generateAmortizationSchedule(principal, annualRate, tenureMonths, startDate, emiOverride)
+      return generateAmortizationSchedule(principal, annualRate, tenureMonths, scheduleStart, emiOverride)
   }
 }
 

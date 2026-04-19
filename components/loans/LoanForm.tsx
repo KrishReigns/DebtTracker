@@ -87,7 +87,7 @@ export default function LoanForm({ loan }: Props) {
 
   const schedulePreview = !isFlexible && principal > 0 && tenure > 0
     ? generateSchedule(principal, rate, tenure, form.start_date, form.interest_type,
-        parseFloat(form.emi_amount) || undefined).slice(0, 5)
+        parseFloat(form.emi_amount) || undefined, form.first_emi_date || undefined).slice(0, 5)
     : []
 
   async function handleSubmit() {
@@ -161,7 +161,8 @@ export default function LoanForm({ loan }: Props) {
 
           const newRows = generateSchedule(
             startBalance, rate, remainingTenure, schedStartDate,
-            form.interest_type, parseFloat(form.emi_amount) || autoEMI || undefined
+            form.interest_type, parseFloat(form.emi_amount) || autoEMI || undefined,
+            lastPaid ? undefined : (form.first_emi_date || undefined) // only for fresh regen
           )
 
           const scheduleRows = newRows.map((row, i) => ({
@@ -186,7 +187,8 @@ export default function LoanForm({ loan }: Props) {
 
       if (!isFlexible && principal > 0) {
         const fullSchedule = generateSchedule(principal, rate, tenure, form.start_date,
-          form.interest_type, parseFloat(form.emi_amount) || autoEMI || undefined)
+          form.interest_type, parseFloat(form.emi_amount) || autoEMI || undefined,
+          form.first_emi_date || undefined)
 
         const payments = fullSchedule.map(row => ({
           loan_id: loanId, due_date: row.date, amount_due: row.emi,
