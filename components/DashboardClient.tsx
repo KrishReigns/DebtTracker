@@ -133,10 +133,9 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
     const loan = loans.find(l => l.id === t.loan_id)
     return s + (loan ? toView(t.amount, loan.currency) : 0)
   }, 0)
-  // True payoff progress: paid ÷ (paid + still owed). This is how much of your TOTAL obligation you've cleared.
-  const totalEverOwed = totalRepaid + totalDebt  // what you've paid + what you still owe today
-  const progressPct = totalEverOwed > 0 ? Math.min(100, Math.round((totalRepaid / totalEverOwed) * 100)) : 0
-  // Interest that has accrued but not yet been paid (family loans)
+  // Progress = paid ÷ original principal borrowed (standard bank metric, only goes up when you pay)
+  const progressPct = totalOriginal > 0 ? Math.min(100, Math.round((totalRepaid / totalOriginal) * 100)) : 0
+  // Interest that has accrued but not yet been paid (family loans only)
   const totalAccruedInterest = loanStats.reduce((s, l) => s + toView(l.accruedInterest, l.loan.currency), 0)
 
   // Debt-free date — latest due date among unpaid rows (pending + partial)
@@ -216,7 +215,7 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               <CardContent className="pt-4">
                 <p className="text-xs text-gray-500">Repaid So Far</p>
                 <p className="text-2xl font-bold mt-1 text-green-600">{sym}{Math.round(totalRepaid).toLocaleString()}</p>
-                <p className="text-xs text-gray-400 mt-1">actual cash paid back</p>
+                <p className="text-xs text-gray-400 mt-1">{progressPct}% of borrowed principal</p>
               </CardContent>
             </Card>
             <Card>
@@ -266,7 +265,7 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                 </div>
               </div>
               <p className="text-[10px] text-gray-400 text-center">
-                paid ÷ (paid + outstanding) · interest grows daily on family loans
+                {progressPct}% of ₹{Math.round(totalOriginal).toLocaleString()} originally borrowed · interest grows daily on family loans
               </p>
             </CardContent>
           </Card>
