@@ -171,7 +171,7 @@ export default function LoanCard({ loan, summary }: Props) {
               </div>
             )}
 
-            {/* Row 5: Progress bar — active loans only */}
+            {/* Row 5: Progress bar — all active loans (always rendered so card heights stay equal) */}
             {!isCls && (() => {
               const pct = isFlexible
                 ? (loan.principal > 0 ? Math.round(((loan.principal - remainingPrincipal) / loan.principal) * 100) : 0)
@@ -179,8 +179,6 @@ export default function LoanCard({ loan, summary }: Props) {
               const label = isFlexible
                 ? `${paidCount} payment${paidCount !== 1 ? 's' : ''} made`
                 : `${paidCount} of ${totalCount} paid`
-              const show = isFlexible ? remainingPrincipal < loan.principal : totalCount > 0
-              if (!show) return null
               return (
                 <div className="space-y-1 pt-0.5">
                   <div className="flex justify-between text-xs text-slate-400">
