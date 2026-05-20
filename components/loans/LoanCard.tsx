@@ -111,13 +111,11 @@ export default function LoanCard({ loan, summary }: Props) {
 
             {/* Row 3: Secondary info */}
             {isCls ? (
-              // Closed: EMIs paid or payment count
+              // Closed: payment count — same label and format for both types
               <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-400">
-                  {isFlexible ? 'Payments made' : 'EMIs paid'}
-                </span>
+                <span className="text-xs text-slate-400">Payments made</span>
                 <span className="text-xs font-semibold text-slate-500">
-                  {isFlexible ? paidCount : `${paidCount} of ${totalCount}`}
+                  {paidCount}
                 </span>
               </div>
             ) : isFlexible ? (
