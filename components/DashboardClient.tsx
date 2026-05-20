@@ -133,7 +133,11 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
     const loan = loans.find(l => l.id === t.loan_id)
     return s + (loan ? toView(t.amount, loan.currency) : 0)
   }, 0)
-  const progressPct = totalOriginal > 0 ? Math.min(100, Math.round((totalRepaid / totalOriginal) * 100)) : 0
+  // True payoff progress: paid ÷ (paid + still owed). This is how much of your TOTAL obligation you've cleared.
+  const totalEverOwed = totalRepaid + totalDebt  // what you've paid + what you still owe today
+  const progressPct = totalEverOwed > 0 ? Math.min(100, Math.round((totalRepaid / totalEverOwed) * 100)) : 0
+  // Interest that has accrued but not yet been paid (family loans)
+  const totalAccruedInterest = loanStats.reduce((s, l) => s + toView(l.accruedInterest, l.loan.currency), 0)
 
   // Debt-free date — latest due date among unpaid rows (pending + partial)
   const pendingDates = schedules
@@ -212,7 +216,7 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               <CardContent className="pt-4">
                 <p className="text-xs text-gray-500">Repaid So Far</p>
                 <p className="text-2xl font-bold mt-1 text-green-600">{sym}{Math.round(totalRepaid).toLocaleString()}</p>
-                <p className="text-xs text-gray-400 mt-1">{progressPct}% of principal</p>
+                <p className="text-xs text-gray-400 mt-1">actual cash paid back</p>
               </CardContent>
             </Card>
             <Card>
@@ -235,8 +239,8 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
 
           {/* Overall progress bar */}
           <Card>
-            <CardContent className="py-4">
-              <div className="flex items-center justify-between mb-2">
+            <CardContent className="py-4 space-y-3">
+              <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-gray-700">Overall Repayment Progress</p>
                 <p className="text-sm font-bold text-indigo-600">{progressPct}%</p>
               </div>
@@ -246,10 +250,24 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
-              <div className="flex justify-between text-xs text-gray-400 mt-1.5">
-                <span>{sym}{Math.round(totalRepaid).toLocaleString()} repaid</span>
-                <span>{sym}{Math.round(totalOriginal).toLocaleString()} total</span>
+              {/* Three numbers that add up correctly */}
+              <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                <div>
+                  <p className="text-xs font-semibold text-emerald-600">{sym}{Math.round(totalRepaid).toLocaleString()}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">paid so far</p>
+                </div>
+                <div className="border-x border-gray-100">
+                  <p className="text-xs font-semibold text-slate-700">{sym}{Math.round(totalDebt - totalAccruedInterest).toLocaleString()}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">principal left</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-amber-500">{sym}{Math.round(totalAccruedInterest).toLocaleString()}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">interest owed</p>
+                </div>
               </div>
+              <p className="text-[10px] text-gray-400 text-center">
+                paid ÷ (paid + outstanding) · interest grows daily on family loans
+              </p>
             </CardContent>
           </Card>
 
