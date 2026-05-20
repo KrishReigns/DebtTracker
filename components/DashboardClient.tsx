@@ -129,10 +129,40 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
   const sym = CURRENCY_SYMBOLS[viewCurrency]
 
   // Overall repayment progress
-  const totalRepaid = transactions.reduce((s, t) => {
-    const loan = loans.find(l => l.id === t.loan_id)
-    return s + (loan ? toView(t.amount, loan.currency) : 0)
-  }, 0)
+  // Fixed-EMI: paid schedule rows are the definitive record (payment_transactions may be missing for legacy payments)
+  // Flexible: payment_transactions are the only record (no schedule rows exist)
+  const totalRepaid = (() => {
+    // Fixed-EMI: sum emi_amount of every 'paid' schedule row
+    const fixedPaid = schedules
+      .filter(s => s.status === 'paid')
+      .reduce((sum, s) => {
+        const loan = loans.find(l => l.id === s.loan_id)
+        if (!loan || loan.repayment_mode === 'flexible_manual') return sum
+        return sum + toView(s.emi_amount, loan.currency)
+      }, 0)
+
+    // Flexible: sum all payment_transactions for flexible loans
+    const flexPaid = transactions
+      .filter(t => loans.find(l => l.id === t.loan_id)?.repayment_mode === 'flexible_manual')
+      .reduce((sum, t) => {
+        const loan = loans.find(l => l.id === t.loan_id)
+        return sum + (loan ? toView(t.amount, loan.currency) : 0)
+      }, 0)
+
+    // Fixed-EMI partial payments: use actual transaction amounts for 'partial' rows
+    const fixedPartial = transactions
+      .filter(t => {
+        const loan = loans.find(l => l.id === t.loan_id)
+        if (!loan || loan.repayment_mode === 'flexible_manual') return false
+        return schedules.some(s => s.loan_id === t.loan_id && s.status === 'partial')
+      })
+      .reduce((sum, t) => {
+        const loan = loans.find(l => l.id === t.loan_id)
+        return sum + (loan ? toView(t.amount, loan.currency) : 0)
+      }, 0)
+
+    return fixedPaid + flexPaid + fixedPartial
+  })()
   const progressPct = totalOriginal > 0 ? Math.min(100, Math.round((totalRepaid / totalOriginal) * 100)) : 0
 
   // Debt-free date — latest due date among unpaid rows (pending + partial)
