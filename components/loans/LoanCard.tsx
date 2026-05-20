@@ -90,16 +90,40 @@ export default function LoanCard({ loan, summary }: Props) {
           {isCls ? (
             // --- CLOSED LOAN (any repayment mode) ---
             <div className="space-y-2">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-slate-400 text-xs">Taken</span>
-                <span className="text-slate-600 text-xs">{formatDate(takenDate)}</span>
+              {/* Taken date */}
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400">Taken</span>
+                <span className="text-slate-600">{formatDate(takenDate)}</span>
               </div>
-              <div className="flex items-center justify-center py-2">
-                <div className="flex items-center gap-2 bg-slate-100 rounded-xl px-4 py-2">
+              {/* Original principal */}
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-slate-500">Principal</span>
+                <span className="text-base font-bold text-slate-700">
+                  {formatCurrency(loan.principal, loan.currency)}
+                </span>
+              </div>
+              {/* Total interest paid (fixed-EMI: from schedule count; flexible: paidCount transactions) */}
+              {!isFlexible && totalCount > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-slate-500">EMIs paid</span>
+                  <span className="text-sm font-semibold text-slate-600">
+                    {paidCount} of {totalCount}
+                  </span>
+                </div>
+              )}
+              {isFlexible && paidCount > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-slate-500">Payments made</span>
+                  <span className="text-sm font-semibold text-slate-600">{paidCount}</span>
+                </div>
+              )}
+              {/* Settled badge */}
+              <div className="flex items-center justify-center pt-1">
+                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2">
                   <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  <span className="text-sm font-semibold text-slate-600">Settled &amp; Closed</span>
+                  <span className="text-sm font-semibold text-emerald-700">Settled &amp; Closed</span>
                 </div>
               </div>
             </div>
