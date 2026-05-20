@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase-server'
 import PaymentsClient from '@/components/payments/PaymentsClient'
 import type { Loan, PaymentSchedule, PaymentTransaction } from '@/lib/types'
 
+export const dynamic = 'force-dynamic'
+
 export default async function PaymentsPage() {
   const supabase = await createClient()
 

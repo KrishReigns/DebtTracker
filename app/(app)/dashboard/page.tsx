@@ -2,6 +2,9 @@ import { createClient } from '@/lib/supabase-server'
 import DashboardClient from '@/components/DashboardClient'
 import type { Loan, PaymentSchedule, PaymentTransaction, ExchangeRate } from '@/lib/types'
 
+// Always fetch fresh data — never serve a cached dashboard
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardPage() {
   const supabase = await createClient()
 

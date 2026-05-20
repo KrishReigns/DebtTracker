@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase-server'
 import LoanCard from '@/components/loans/LoanCard'
 import LoansExportButton from '@/components/loans/LoansExportButton'
 import { buttonVariants } from '@/components/ui/button'
+
+export const dynamic = 'force-dynamic'
 import { cn } from '@/lib/utils'
 import { computeFamilyLoanState } from '@/lib/calculations'
 import type { Loan, PaymentSchedule, PaymentTransaction } from '@/lib/types'
