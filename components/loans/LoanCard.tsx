@@ -115,7 +115,7 @@ export default function LoanCard({ loan, summary }: Props) {
               <div className="flex justify-between items-center">
                 <span className="text-xs text-slate-400">Payments made</span>
                 <span className="text-xs font-semibold text-slate-500">
-                  {paidCount}
+                  {paidCount > 0 ? paidCount : '—'}
                 </span>
               </div>
             ) : isFlexible ? (
