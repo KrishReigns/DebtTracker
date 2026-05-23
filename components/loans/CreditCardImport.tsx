@@ -106,10 +106,12 @@ export default function CreditCardImport({ loanId, currency, onImported }: Props
     const newDuplicates = new Set<number>()
 
     s.transactions.forEach((tx, i) => {
+      // Only consider payments/credits — charges and fees are irrelevant for a debt tracker
+      if (tx.type !== 'payment' && tx.type !== 'credit' && tx.amount <= 0) return
       const key = `${tx.date}|${Math.round(Math.abs(tx.amount) * 100)}`
       if (existing.has(key)) {
         newDuplicates.add(i)   // already in DB — deselect automatically
-      } else if (tx.type === 'payment' || tx.amount > 0) {
+      } else {
         newSelected.add(i)     // new payment — pre-select
       }
     })
@@ -323,119 +325,132 @@ export default function CreditCardImport({ loanId, currency, onImported }: Props
               )}
 
               {/* preview */}
-              {step === 'preview' && statement && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {[
-                      { label: 'Bank', value: statement.bank },
-                      { label: 'Closing Date', value: statement.statementDate ?? '—' },
-                      { label: 'Due Date', value: statement.dueDate ?? '—' },
-                      { label: 'New Balance', value: statement.newBalance != null ? formatCurrency(statement.newBalance, cur(statement.currency)) : '—' },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-                        <p className="text-xs text-slate-400">{label}</p>
-                        <p className="text-sm font-semibold text-slate-700 mt-0.5 truncate">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {statement.minimumDue != null && (
-                    <p className="text-xs text-slate-400">
-                      Minimum due: <span className="font-medium text-slate-600">{formatCurrency(statement.minimumDue, cur(statement.currency))}</span>
-                    </p>
-                  )}
-
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium text-slate-700">
-                        Transactions <span className="text-slate-400 font-normal">({statement.transactions.length} found)</span>
-                      </p>
-                      <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer select-none">
-                        <input type="checkbox" className="rounded" checked={selected.size === statement.transactions.length} onChange={e => toggleAll(e.target.checked)} />
-                        Select all
-                      </label>
+              {step === 'preview' && statement && (() => {
+                // Only show payment/credit rows — charges are irrelevant for a debt tracker
+                const paymentRows = statement.transactions
+                  .map((tx, i) => ({ tx, i }))
+                  .filter(({ tx }) => tx.type === 'payment' || tx.type === 'credit' || tx.amount > 0)
+                const noPayments = paymentRows.length === 0
+                return (
+                  <div className="space-y-4">
+                    {/* Statement summary */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {[
+                        { label: 'Bank', value: statement.bank },
+                        { label: 'Closing Date', value: statement.statementDate ?? '—' },
+                        { label: 'Due Date', value: statement.dueDate ?? '—' },
+                        { label: 'Statement Balance', value: statement.newBalance != null ? formatCurrency(statement.newBalance, cur(statement.currency)) : '—' },
+                      ].map(({ label, value }) => (
+                        <div key={label} className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                          <p className="text-xs text-slate-400">{label}</p>
+                          <p className="text-sm font-semibold text-slate-700 mt-0.5 truncate">{value}</p>
+                        </div>
+                      ))}
                     </div>
-                    {duplicates.size > 0 && (
-                      <div className="flex items-center gap-2 mb-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
-                        <svg className="w-3.5 h-3.5 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                        </svg>
-                        <p className="text-xs text-amber-700">
-                          <span className="font-semibold">{duplicates.size} already imported</span> — deselected automatically. Select them only if you want to re-import.
+
+                    {/* Payments section */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <p className="text-sm font-medium text-slate-700">Payments made to this card</p>
+                          <p className="text-xs text-slate-400 mt-0.5">Only payments that reduce your balance are shown. Purchases are excluded.</p>
+                        </div>
+                        {paymentRows.length > 1 && (
+                          <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer select-none shrink-0">
+                            <input
+                              type="checkbox"
+                              className="rounded"
+                              checked={paymentRows.every(({ i }) => selected.has(i))}
+                              onChange={e => {
+                                const next = new Set(selected)
+                                paymentRows.forEach(({ i }) => e.target.checked ? next.add(i) : next.delete(i))
+                                setSelected(next)
+                              }}
+                            />
+                            Select all
+                          </label>
+                        )}
+                      </div>
+
+                      {duplicates.size > 0 && (
+                        <div className="flex items-center gap-2 mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                          <svg className="w-3.5 h-3.5 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                          </svg>
+                          <p className="text-xs text-amber-700">
+                            <span className="font-semibold">{duplicates.size} already imported</span> — deselected to prevent duplicates.
+                          </p>
+                        </div>
+                      )}
+
+                      {noPayments ? (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 py-8 text-center">
+                          <p className="text-sm text-slate-400">No payments found in this statement</p>
+                          <p className="text-xs text-slate-300 mt-1">This may be a purchases-only statement period</p>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-slate-200 overflow-hidden">
+                          <table className="w-full text-xs">
+                            <thead className="bg-slate-50">
+                              <tr>
+                                <th className="w-8 px-3 py-2" />
+                                <th className="text-left px-3 py-2 text-slate-500 font-medium">Date</th>
+                                <th className="text-left px-3 py-2 text-slate-500 font-medium">Description</th>
+                                <th className="text-right px-3 py-2 text-slate-500 font-medium">Amount paid</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {paymentRows.map(({ tx, i }) => {
+                                const isDupe = duplicates.has(i)
+                                return (
+                                  <tr
+                                    key={i}
+                                    className={`cursor-pointer transition-colors ${isDupe ? 'opacity-50' : selected.has(i) ? 'bg-emerald-50/60' : 'hover:bg-slate-50'}`}
+                                    onClick={() => toggleRow(i)}
+                                  >
+                                    <td className="px-3 py-2">
+                                      <input type="checkbox" className="rounded pointer-events-none" checked={selected.has(i)} readOnly />
+                                    </td>
+                                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{tx.date}</td>
+                                    <td className="px-3 py-2 text-slate-700 max-w-[220px] truncate">
+                                      {tx.description}
+                                      {isDupe && <span className="ml-1.5 inline-flex px-1 py-0.5 rounded text-[9px] font-semibold bg-amber-100 text-amber-700 align-middle">already imported</span>}
+                                    </td>
+                                    <td className="px-3 py-2 text-right font-semibold text-emerald-600 whitespace-nowrap">
+                                      {formatCurrency(Math.abs(tx.amount), cur(statement.currency))}
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {selected.size > 0 && (
+                        <p className="text-xs text-slate-500 mt-2">
+                          {selected.size} payment{selected.size !== 1 ? 's' : ''} ·{' '}
+                          <span className="font-semibold text-slate-700">{formatCurrency(selectedTotal, cur(statement.currency))} total</span>
+                          {' '}will be added to your payment history
                         </p>
-                      </div>
-                    )}
-                    <p className="text-xs text-slate-400 mb-2">
-                      Payments (money paid to card) are pre-selected. Deselect charges you don&apos;t want to import.
-                    </p>
-                    <div className="rounded-xl border border-slate-200 overflow-hidden">
-                      <div className="overflow-x-auto max-h-64">
-                        <table className="w-full text-xs">
-                          <thead className="bg-slate-50 sticky top-0">
-                            <tr>
-                              <th className="w-8 px-3 py-2" />
-                              <th className="text-left px-3 py-2 text-slate-500 font-medium">Date</th>
-                              <th className="text-left px-3 py-2 text-slate-500 font-medium">Description</th>
-                              <th className="text-left px-3 py-2 text-slate-500 font-medium">Type</th>
-                              <th className="text-right px-3 py-2 text-slate-500 font-medium">Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {statement.transactions.map((tx, i) => {
-                              const isDupe = duplicates.has(i)
-                              return (
-                                <tr
-                                  key={i}
-                                  className={`cursor-pointer transition-colors ${
-                                    isDupe
-                                      ? 'bg-slate-50 opacity-60'
-                                      : selected.has(i) ? 'bg-indigo-50/60' : 'hover:bg-slate-50'
-                                  }`}
-                                  onClick={() => toggleRow(i)}
-                                >
-                                  <td className="px-3 py-2">
-                                    <input type="checkbox" className="rounded pointer-events-none" checked={selected.has(i)} readOnly />
-                                  </td>
-                                  <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{tx.date}</td>
-                                  <td className="px-3 py-2 text-slate-700 max-w-[180px] truncate">
-                                    {tx.description}
-                                    {isDupe && (
-                                      <span className="ml-1.5 inline-flex px-1 py-0.5 rounded text-[9px] font-semibold bg-amber-100 text-amber-700 align-middle">
-                                        already imported
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="px-3 py-2"><TypeBadge type={tx.type} /></td>
-                                  <td className={`px-3 py-2 text-right font-medium whitespace-nowrap ${tx.amount > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                    {tx.amount > 0 ? '+' : ''}{formatCurrency(Math.abs(tx.amount), cur(statement.currency))}
-                                  </td>
-                                </tr>
-                              )
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                      )}
                     </div>
-                    {selected.size > 0 && (
-                      <p className="text-xs text-slate-500 mt-2">
-                        {selected.size} transaction{selected.size !== 1 ? 's' : ''} selected ·{' '}
-                        <span className="font-medium text-slate-700">{formatCurrency(selectedTotal, cur(statement.currency))} total</span>
-                        {' '}will be added as payment records
-                      </p>
-                    )}
                   </div>
-                </div>
-              )}
+                )
+              })()}
 
               {/* done */}
               {step === 'done' && (
-                <div className="flex flex-col items-center justify-center py-12 gap-3">
+                <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
                   <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
                     <svg className="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                     </svg>
                   </div>
-                  <p className="text-sm font-medium text-slate-700">Imported successfully</p>
+                  <p className="text-sm font-semibold text-slate-700">Payments imported</p>
+                  <p className="text-xs text-slate-400 max-w-xs">
+                    Scroll down to <span className="font-medium text-slate-600">Payment History</span> on this page to see them. Your outstanding balance will update to reflect these payments.
+                  </p>
                 </div>
               )}
             </div>
