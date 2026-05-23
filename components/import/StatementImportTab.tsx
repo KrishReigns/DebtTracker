@@ -171,6 +171,37 @@ export default function StatementImportTab() {
       // Update loan principal to reflect current statement balance
       if (statement.newBalance != null) {
         await supabase.from('loans').update({ principal: statement.newBalance }).eq('id', selectedCard.id)
+
+        // For fixed-EMI credit cards: refresh the schedule row so the detail page
+        // shows the current statement balance and due date, not the original amounts
+        const dueDate = statement.dueDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+        const { data: schedRows } = await supabase
+          .from('payment_schedules')
+          .select('id, status')
+          .eq('loan_id', selectedCard.id)
+          .order('installment_number')
+
+        if (schedRows && schedRows.length > 0) {
+          // Delete all pending rows and replace with a single current-balance row
+          const pendingIds = schedRows.filter(r => r.status === 'pending').map(r => r.id)
+          if (pendingIds.length > 0) {
+            await supabase.from('payment_schedules').delete().in('id', pendingIds)
+          }
+          await supabase.from('payment_schedules').insert({
+            loan_id: selectedCard.id,
+            installment_number: (schedRows.length - pendingIds.length) + 1,
+            contractual_due_date: dueDate,
+            planned_pay_date: dueDate,
+            opening_balance: statement.newBalance,
+            emi_amount: statement.newBalance,
+            principal_amount: statement.newBalance,
+            interest_amount: 0,
+            closing_balance: 0,
+            amount_paid: null,
+            rate: selectedCard.interest_rate,
+            status: 'pending',
+          })
+        }
       }
 
       setStep('done')
