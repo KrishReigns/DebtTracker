@@ -25,10 +25,10 @@ export default async function LoansPage() {
     : { data: [] }
   const schedules = (schedulesRaw ?? []) as PaymentSchedule[]
 
-  // Fetch transactions for flexible loans
-  const flexibleIds = loans.filter(l => l.repayment_mode === 'flexible_manual').map(l => l.id)
-  const { data: txRaw } = flexibleIds.length > 0
-    ? await supabase.from('payment_transactions').select('*').in('loan_id', flexibleIds).order('payment_date')
+  // Fetch transactions for flexible loans and credit cards
+  const txLoanIds = loans.filter(l => l.repayment_mode === 'flexible_manual' || l.loan_type === 'credit_card').map(l => l.id)
+  const { data: txRaw } = txLoanIds.length > 0
+    ? await supabase.from('payment_transactions').select('*').in('loan_id', txLoanIds).order('payment_date')
     : { data: [] }
   const transactions = (txRaw ?? []) as PaymentTransaction[]
 
@@ -53,6 +53,18 @@ export default async function LoansPage() {
         nextDueDate: null,
         accruedInterest: state.accruedInterest,
         isClosed,
+      }
+    } else if (loan.loan_type === 'credit_card') {
+      // Credit cards: principal IS the current statement balance (updated on each import)
+      // Payment transactions track what was paid each month
+      const loanTx = transactions.filter(t => t.loan_id === loan.id)
+      const lastTx = loanTx.sort((a, b) => b.payment_date.localeCompare(a.payment_date))[0]
+      summaries[loan.id] = {
+        paidCount: loanTx.length,
+        totalCount: 0,
+        remainingPrincipal: loan.principal,  // always the current statement balance
+        nextEMI: null,
+        nextDueDate: lastTx?.note?.match(/Due: (\d{4}-\d{2}-\d{2})/)?.[1] ?? null,
       }
     } else {
       const rows = schedules.filter(s => s.loan_id === loan.id)
