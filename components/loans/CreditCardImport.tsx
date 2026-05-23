@@ -25,8 +25,10 @@ async function extractPdfText(buffer: ArrayBuffer, password?: string): Promise<s
     import.meta.url,
   ).toString()
 
+  // slice(0) copies the buffer — pdfjs transfers it to the worker thread which
+  // would detach the original, making it unusable for a second call (e.g. password retry)
   const loadingTask = pdfjs.getDocument({
-    data: new Uint8Array(buffer),
+    data: new Uint8Array(buffer.slice(0)),
     ...(password ? { password } : {}),
   })
 
@@ -147,11 +149,13 @@ export default function CreditCardImport({ loanId, currency, onImported }: Props
 
   async function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!password.trim() || !pendingBuffer.current) return
+    if (!password.trim() || !pendingFile.current) return
     setPasswordError(null)
 
     try {
-      const text = await extractPdfText(pendingBuffer.current, password)
+      // Re-read from the File object — avoids any detached-buffer issues
+      const freshBuffer = await pendingFile.current.arrayBuffer()
+      const text = await extractPdfText(freshBuffer, password)
       await sendToApi(null, text)
     } catch (err: unknown) {
       const name = (err as { name?: string })?.name ?? ''
