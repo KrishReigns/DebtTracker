@@ -19,6 +19,7 @@ import { Progress } from '@/components/ui/progress'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, LineChart, Line, ReferenceLine } from 'recharts'
 import RecordPaymentModal from './RecordPaymentModal'
 import EditPaymentModal from './EditPaymentModal'
+import CreditCardImport from './CreditCardImport'
 
 interface Props {
   loan: Loan
@@ -445,9 +446,18 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
               </div>
             ))}
             {loan.status === 'active' && (
-              <Button className="w-full mt-2" onClick={() => setRecordModal({ open: true })}>
-                + Record Payment
-              </Button>
+              <div className={`mt-2 ${loan.loan_type === 'credit_card' ? 'flex gap-2' : ''}`}>
+                <Button className="flex-1" onClick={() => setRecordModal({ open: true })}>
+                  + Record Payment
+                </Button>
+                {loan.loan_type === 'credit_card' && (
+                  <CreditCardImport
+                    loanId={loan.id}
+                    currency={loan.currency}
+                    onImported={() => router.refresh()}
+                  />
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -549,9 +559,18 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="text-sm text-slate-700">Upcoming Payments</CardTitle>
-            <Button size="sm" onClick={() => setRecordModal({ open: true, scheduleRow: pendingRows[0] })}>
-              Pay Next EMI
-            </Button>
+            <div className="flex items-center gap-2">
+              {loan.loan_type === 'credit_card' && (
+                <CreditCardImport
+                  loanId={loan.id}
+                  currency={loan.currency}
+                  onImported={() => router.refresh()}
+                />
+              )}
+              <Button size="sm" onClick={() => setRecordModal({ open: true, scheduleRow: pendingRows[0] })}>
+                Pay Next EMI
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-0 divide-y divide-slate-100">
             {pendingRows.slice(0, 5).map(row => {
