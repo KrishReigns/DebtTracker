@@ -22,17 +22,6 @@ async function extractPdfText(buffer: ArrayBuffer, password?: string): Promise<s
   return parts.join('\n')
 }
 
-/** Score how well a card name matches a bank name from the statement */
-function matchScore(lenderName: string, bank: string): number {
-  const l = lenderName.toLowerCase()
-  const b = bank.toLowerCase()
-  if (l === b) return 100
-  if (l.includes(b) || b.includes(l)) return 80
-  const lWords = l.split(/\s+/)
-  const bWords = b.split(/\s+/)
-  const shared = lWords.filter(w => w.length > 2 && bWords.some(bw => bw.includes(w) || w.includes(bw)))
-  return shared.length > 0 ? 60 : 0
-}
 
 type Step = 'upload' | 'checking' | 'password' | 'parsing' | 'confirm-card' | 'preview' | 'duplicate' | 'importing' | 'done' | 'error'
 
@@ -44,7 +33,6 @@ export default function StatementImportTab() {
   const [step, setStep] = useState<Step>('upload')
   const [error, setError] = useState<string | null>(null)
   const [statement, setStatement] = useState<ParsedStatement | null>(null)
-  const [matchedCard, setMatchedCard] = useState<Loan | null>(null)
   const [selectedCardId, setSelectedCardId] = useState<string>('')
   const [password, setPassword] = useState('')
   const [passwordError, setPasswordError] = useState<string | null>(null)
@@ -53,11 +41,12 @@ export default function StatementImportTab() {
   const pendingFile = useRef<File | null>(null)
 
   useEffect(() => {
-    createClient().from('loans').select('*').eq('loan_type', 'credit_card').order('lender_name')
+    createClient().from('loans').select('*')
+      .eq('loan_type', 'credit_card').eq('status', 'active').order('lender_name')
       .then(({ data }) => {
         const loans = (data ?? []) as Loan[]
         setCards(loans)
-        if (loans.length > 0) setSelectedCardId(loans[0].id)
+        // No auto-selection — user must explicitly pick their card
       })
   }, [])
 
@@ -65,7 +54,6 @@ export default function StatementImportTab() {
     setStep('upload')
     setError(null)
     setStatement(null)
-    setMatchedCard(null)
     setPassword('')
     setPasswordError(null)
     setExisting(null)
@@ -87,16 +75,9 @@ export default function StatementImportTab() {
     const s: ParsedStatement = data.statement
     setStatement(s)
 
-    // Auto-match bank name to a card
-    const scored = cards.map(c => ({ card: c, score: matchScore(c.lender_name, s.bank) }))
-    scored.sort((a, b) => b.score - a.score)
-    const best = scored[0]
-    if (best && best.score >= 60) {
-      setMatchedCard(best.card)
-      setSelectedCardId(best.card.id)
-    } else {
-      setMatchedCard(null)
-    }
+    // Never auto-match — generic loan names cause wrong matches (e.g. "US Credit Card" → Axis)
+    // User always picks explicitly
+    setSelectedCardId('')
     setStep('confirm-card')
   }
 
@@ -279,10 +260,15 @@ export default function StatementImportTab() {
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
-              {matchedCard ? `Matched to your ${matchedCard.lender_name} card — correct?` : 'Which card is this statement for?'}
+              Which card is this statement for?
             </label>
             {cards.length === 0 ? (
-              <p className="text-sm text-slate-400">No credit card loans found. <a href="/loans/new" className="text-indigo-600 underline">Add one first →</a></p>
+              <div className="rounded-lg border border-dashed border-slate-200 p-4 text-center space-y-2">
+                <p className="text-sm text-slate-400">No active credit card loans found.</p>
+                <a href="/loans/new" className="inline-block text-sm font-medium text-indigo-600 hover:text-indigo-700 underline">
+                  + Create your first credit card →
+                </a>
+              </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {cards.map(card => (
@@ -294,6 +280,15 @@ export default function StatementImportTab() {
                     <p className="text-xs text-slate-400">{card.currency} · {card.interest_rate}% p.a.</p>
                   </button>
                 ))}
+                {/* Create new card inline */}
+                <a href="/loans/new"
+                  className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-500 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50/40 transition-all">
+                  <span className="text-lg leading-none">+</span>
+                  <div>
+                    <p className="font-medium">Add new card</p>
+                    <p className="text-xs text-slate-400">Chase, Citi, Amex, Capital One…</p>
+                  </div>
+                </a>
               </div>
             )}
           </div>
@@ -304,7 +299,7 @@ export default function StatementImportTab() {
             </button>
             <button onClick={proceedToPreview} disabled={!selectedCardId}
               className="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 transition-colors">
-              Continue →
+              {selectedCardId ? 'Continue →' : 'Select a card'}
             </button>
           </div>
         </div>
