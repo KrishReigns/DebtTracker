@@ -11,7 +11,8 @@ function cur(c: string): Currency { return c as Currency }
 
 async function extractPdfText(buffer: ArrayBuffer, password?: string): Promise<string> {
   const pdfjs = await import('pdfjs-dist')
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
+  // Use a static public path — import.meta.url is unreliable on iOS Safari
+  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
   const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer.slice(0)), ...(password ? { password } : {}) }).promise
   const parts: string[] = []
   for (let p = 1; p <= doc.numPages; p++) {
@@ -312,15 +313,32 @@ export default function StatementImportTab() {
       {/* Duplicate warning */}
       {step === 'duplicate' && statement && existing && selectedCard && (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
-          <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-2">
-            <p className="text-sm font-semibold text-amber-800">Statement already exists for this month</p>
-            <p className="text-xs text-amber-700">Existing: <span className="font-medium">{existing.note ?? `${formatCurrency(existing.amount, selectedCard.currency)} on ${existing.payment_date}`}</span></p>
-            <p className="text-xs text-amber-700">New: Balance <span className="font-medium">{statement.newBalance != null ? formatCurrency(statement.newBalance, cur(statement.currency)) : '—'}</span>
-              {paymentTotal > 0 && <> · Payment <span className="font-medium">{formatCurrency(paymentTotal, cur(statement.currency))}</span></>}</p>
+          <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 space-y-3">
+            <p className="text-sm font-semibold text-amber-800">A statement already exists for {selectedCard.lender_name} this month</p>
+            <div className="space-y-1">
+              <p className="text-xs text-amber-700">Existing: <span className="font-medium">{existing.note ?? `${formatCurrency(existing.amount, selectedCard.currency)} on ${existing.payment_date}`}</span></p>
+              <p className="text-xs text-amber-700">
+                New: Balance <span className="font-medium">{statement.newBalance != null ? formatCurrency(statement.newBalance, cur(statement.currency)) : '—'}</span>
+                {paymentTotal > 0 && <> · Payment <span className="font-medium">{formatCurrency(paymentTotal, cur(statement.currency))}</span></>}
+              </p>
+            </div>
+            <p className="text-xs text-amber-600 border-t border-amber-200 pt-2">
+              💡 If this is a <strong>different physical card</strong> (e.g. Chase vs Amex), go to{' '}
+              <a href="/loans/new" className="underline font-medium">Loans → Add Loan</a> and create a separate entry for each card, then re-import.
+            </p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={reset} className="flex-1 px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors">Cancel</button>
-            <button onClick={() => handleImport(true)} className="flex-1 px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors">Replace existing</button>
+          <div className="flex flex-col gap-2">
+            <button onClick={() => handleImport(true)}
+              className="w-full px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors">
+              Replace — same card, updated statement
+            </button>
+            <button onClick={() => { setStep('preview') }}
+              className="w-full px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+              Import anyway — this is a different card
+            </button>
+            <button onClick={reset} className="text-xs text-slate-400 hover:text-slate-600 text-center">
+              Cancel
+            </button>
           </div>
         </div>
       )}

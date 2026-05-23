@@ -20,10 +20,7 @@ type Step = 'idle' | 'checking' | 'password' | 'parsing' | 'preview' | 'importin
 async function extractPdfText(buffer: ArrayBuffer, password?: string): Promise<string> {
   // Dynamic import keeps pdfjs out of the server bundle
   const pdfjs = await import('pdfjs-dist')
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.min.mjs',
-    import.meta.url,
-  ).toString()
+  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
   // slice(0) copies the buffer — pdfjs transfers it to the worker thread which
   // would detach the original, making it unusable for a second call (e.g. password retry)
