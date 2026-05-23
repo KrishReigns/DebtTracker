@@ -9,6 +9,7 @@ import { LOAN_TYPE_LABELS, type LoanType, type Currency, type InterestType, type
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import StatementImportTab from '@/components/import/StatementImportTab'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ImportRow {
@@ -232,6 +233,7 @@ export default function ImportPage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const [activeTab, setActiveTab] = useState<'loans' | 'statements'>('loans')
   const [step, setStep] = useState<Step>('upload')
   const [fileName, setFileName] = useState('')
   const [rawHeaders, setRawHeaders] = useState<string[]>([])
@@ -386,9 +388,33 @@ export default function ImportPage() {
     <div className="space-y-6 max-w-3xl">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Import Loans</h1>
-        <p className="text-sm text-gray-500 mt-1">Upload any spreadsheet — the app will detect and map your columns automatically.</p>
+        <h1 className="text-2xl font-bold text-gray-900">Import</h1>
+        <p className="text-sm text-gray-500 mt-1">Import loans from a spreadsheet or upload credit card statements.</p>
       </div>
+
+      {/* Tab switcher */}
+      <div className="flex gap-1 p-1 bg-slate-100 rounded-lg w-fit">
+        {([
+          { key: 'loans',      label: 'Loans (Excel / CSV)' },
+          { key: 'statements', label: 'Credit Card Statements' },
+        ] as const).map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeTab === key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Statements tab */}
+      {activeTab === 'statements' && <StatementImportTab />}
+
+      {/* Loans tab */}
+      {activeTab === 'loans' && <>
 
       {/* Step indicator */}
       <div className="flex items-center gap-2 text-sm">
@@ -622,6 +648,8 @@ export default function ImportPage() {
           )}
         </div>
       )}
+
+      </>}
     </div>
   )
 }
