@@ -51,6 +51,7 @@ export default function CreditCardImport({ loanId, currency, onImported }: Props
   const [error, setError] = useState<string | null>(null)
   const [statement, setStatement] = useState<ParsedStatement | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [duplicates, setDuplicates] = useState<Set<number>>(new Set())
   const [password, setPassword] = useState('')
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -62,6 +63,7 @@ export default function CreditCardImport({ loanId, currency, onImported }: Props
     setError(null)
     setStatement(null)
     setSelected(new Set())
+    setDuplicates(new Set())
     setPassword('')
     setPasswordError(null)
     pendingBuffer.current = null
@@ -74,22 +76,44 @@ export default function CreditCardImport({ loanId, currency, onImported }: Props
   async function sendToApi(file: File | null, text: string | null) {
     setStep('parsing')
     const form = new FormData()
-    if (text !== null) {
-      form.append('text', text)
-    } else if (file) {
-      form.append('pdf', file)
-    }
-    const res = await fetch('/api/credit-card/parse-statement', { method: 'POST', body: form })
+    if (text !== null) form.append('text', text)
+    else if (file) form.append('pdf', file)
+
+    // Fetch parsed statement + existing transactions in parallel
+    const [res, existingRes] = await Promise.all([
+      fetch('/api/credit-card/parse-statement', { method: 'POST', body: form }),
+      createClient()
+        .from('payment_transactions')
+        .select('payment_date, amount')
+        .eq('loan_id', loanId)
+        .eq('payment_method', 'statement_import'),
+    ])
+
     const data = await res.json()
     if (!res.ok || data.error) throw new Error(data.error ?? 'Parse failed')
 
     const s: ParsedStatement = data.statement
     setStatement(s)
-    const payments = new Set<number>()
+
+    // Build a lookup key: "YYYY-MM-DD|amount" for every already-imported row
+    const existing = new Set<string>(
+      (existingRes.data ?? []).map(r => `${r.payment_date}|${Math.round(r.amount * 100)}`)
+    )
+
+    const newSelected = new Set<number>()
+    const newDuplicates = new Set<number>()
+
     s.transactions.forEach((tx, i) => {
-      if (tx.type === 'payment' || tx.amount > 0) payments.add(i)
+      const key = `${tx.date}|${Math.round(Math.abs(tx.amount) * 100)}`
+      if (existing.has(key)) {
+        newDuplicates.add(i)   // already in DB — deselect automatically
+      } else if (tx.type === 'payment' || tx.amount > 0) {
+        newSelected.add(i)     // new payment — pre-select
+      }
     })
-    setSelected(payments)
+
+    setDuplicates(newDuplicates)
+    setSelected(newSelected)
     setStep('preview')
   }
 
@@ -327,6 +351,16 @@ export default function CreditCardImport({ loanId, currency, onImported }: Props
                         Select all
                       </label>
                     </div>
+                    {duplicates.size > 0 && (
+                      <div className="flex items-center gap-2 mb-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                        <svg className="w-3.5 h-3.5 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                        </svg>
+                        <p className="text-xs text-amber-700">
+                          <span className="font-semibold">{duplicates.size} already imported</span> — deselected automatically. Select them only if you want to re-import.
+                        </p>
+                      </div>
+                    )}
                     <p className="text-xs text-slate-400 mb-2">
                       Payments (money paid to card) are pre-selected. Deselect charges you don&apos;t want to import.
                     </p>
@@ -343,19 +377,37 @@ export default function CreditCardImport({ loanId, currency, onImported }: Props
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {statement.transactions.map((tx, i) => (
-                              <tr key={i} className={`cursor-pointer transition-colors ${selected.has(i) ? 'bg-indigo-50/60' : 'hover:bg-slate-50'}`} onClick={() => toggleRow(i)}>
-                                <td className="px-3 py-2">
-                                  <input type="checkbox" className="rounded pointer-events-none" checked={selected.has(i)} readOnly />
-                                </td>
-                                <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{tx.date}</td>
-                                <td className="px-3 py-2 text-slate-700 max-w-[200px] truncate">{tx.description}</td>
-                                <td className="px-3 py-2"><TypeBadge type={tx.type} /></td>
-                                <td className={`px-3 py-2 text-right font-medium whitespace-nowrap ${tx.amount > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                  {tx.amount > 0 ? '+' : ''}{formatCurrency(Math.abs(tx.amount), cur(statement.currency))}
-                                </td>
-                              </tr>
-                            ))}
+                            {statement.transactions.map((tx, i) => {
+                              const isDupe = duplicates.has(i)
+                              return (
+                                <tr
+                                  key={i}
+                                  className={`cursor-pointer transition-colors ${
+                                    isDupe
+                                      ? 'bg-slate-50 opacity-60'
+                                      : selected.has(i) ? 'bg-indigo-50/60' : 'hover:bg-slate-50'
+                                  }`}
+                                  onClick={() => toggleRow(i)}
+                                >
+                                  <td className="px-3 py-2">
+                                    <input type="checkbox" className="rounded pointer-events-none" checked={selected.has(i)} readOnly />
+                                  </td>
+                                  <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{tx.date}</td>
+                                  <td className="px-3 py-2 text-slate-700 max-w-[180px] truncate">
+                                    {tx.description}
+                                    {isDupe && (
+                                      <span className="ml-1.5 inline-flex px-1 py-0.5 rounded text-[9px] font-semibold bg-amber-100 text-amber-700 align-middle">
+                                        already imported
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2"><TypeBadge type={tx.type} /></td>
+                                  <td className={`px-3 py-2 text-right font-medium whitespace-nowrap ${tx.amount > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                    {tx.amount > 0 ? '+' : ''}{formatCurrency(Math.abs(tx.amount), cur(statement.currency))}
+                                  </td>
+                                </tr>
+                              )
+                            })}
                           </tbody>
                         </table>
                       </div>
