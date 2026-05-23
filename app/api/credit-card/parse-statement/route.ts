@@ -24,11 +24,11 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData()
     const file = formData.get('pdf') as File | null
 
-    if (!file || file.type !== 'application/pdf') {
+    if (file && file.type !== 'application/pdf') {
       return NextResponse.json({ error: 'Please upload a PDF file.' }, { status: 400 })
     }
 
-    if (file.size > 10 * 1024 * 1024) {
+    if (file && file.size > 10 * 1024 * 1024) {
       return NextResponse.json({ error: 'PDF must be under 10 MB.' }, { status: 400 })
     }
 
@@ -37,23 +37,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured.' }, { status: 500 })
     }
 
-    // Convert PDF to base64 — Claude reads PDFs natively, no parser library needed
-    const base64 = Buffer.from(await file.arrayBuffer()).toString('base64')
-
     const client = new Anthropic({ apiKey })
 
-    const docBlock: DocumentBlockParam = {
-      type: 'document',
-      source: {
-        type: 'base64',
-        media_type: 'application/pdf',
-        data: base64,
-      },
-    }
-
-    const textBlock: TextBlockParam = {
-      type: 'text',
-      text: `You are a credit card statement parser. Extract structured data from this statement and return ONLY valid JSON — no markdown, no explanation, no code fences.
+    const PROMPT = `You are a credit card statement parser. Extract structured data from this statement and return ONLY valid JSON — no markdown, no explanation, no code fences.
 
 Return this exact shape:
 {
@@ -79,13 +65,38 @@ Rules:
 - Purchases/charges are NEGATIVE (they increase debt)
 - If a field cannot be determined, use null
 - Include ALL transactions found in the statement
-- For US cards amounts are in USD, for Indian cards in INR — infer from context`,
+- For US cards amounts are in USD, for Indian cards in INR — infer from context`
+
+    // Two modes: pre-extracted text (password-protected PDFs) OR raw PDF
+    const extractedText = formData.get('text') as string | null
+
+    let messageContent: Parameters<typeof client.messages.create>[0]['messages'][0]['content']
+
+    if (extractedText) {
+      // Text was extracted client-side (password-protected PDF)
+      const textBlock: TextBlockParam = {
+        type: 'text',
+        text: `${PROMPT}\n\nStatement text:\n${extractedText.slice(0, 15000)}`,
+      }
+      messageContent = [textBlock]
+    } else {
+      // Raw PDF — Claude reads it natively (better accuracy for non-protected PDFs)
+      if (!file) {
+        return NextResponse.json({ error: 'No PDF or text provided.' }, { status: 400 })
+      }
+      const base64 = Buffer.from(await file.arrayBuffer()).toString('base64')
+      const docBlock: DocumentBlockParam = {
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: base64 },
+      }
+      const textBlock: TextBlockParam = { type: 'text', text: PROMPT }
+      messageContent = [docBlock, textBlock]
     }
 
     const message = await client.messages.create({
       model: 'claude-3-5-haiku-20241022',
       max_tokens: 2048,
-      messages: [{ role: 'user', content: [docBlock, textBlock] }],
+      messages: [{ role: 'user', content: messageContent }],
     })
 
     const raw = (message.content[0] as { type: string; text: string }).text.trim()
