@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-
-// pdf-parse must be required (not imported) to avoid Next.js edge-runtime issues
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require('pdf-parse/lib/pdf-parse.js')
+import type { DocumentBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
 
 export interface ParsedStatementTransaction {
   date: string        // YYYY-MM-DD
@@ -35,34 +32,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'PDF must be under 10 MB.' }, { status: 400 })
     }
 
-    // Extract raw text from PDF
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const { text } = await pdfParse(buffer)
-
-    if (!text || text.trim().length < 50) {
-      return NextResponse.json(
-        { error: 'Could not extract text from this PDF. It may be scanned/image-based.' },
-        { status: 422 }
-      )
-    }
-
-    // Truncate to avoid huge token bills (first 12k chars covers most statements)
-    const excerpt = text.slice(0, 12000)
-
     const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured.' }, { status: 500 })
     }
 
+    // Convert PDF to base64 — Claude reads PDFs natively, no parser library needed
+    const base64 = Buffer.from(await file.arrayBuffer()).toString('base64')
+
     const client = new Anthropic({ apiKey })
 
-    const message = await client.messages.create({
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 2048,
-      messages: [
-        {
-          role: 'user',
-          content: `You are a credit card statement parser. Extract structured data from this statement text and return ONLY valid JSON — no markdown, no explanation, no code fences.
+    const docBlock: DocumentBlockParam = {
+      type: 'document',
+      source: {
+        type: 'base64',
+        media_type: 'application/pdf',
+        data: base64,
+      },
+    }
+
+    const textBlock: TextBlockParam = {
+      type: 'text',
+      text: `You are a credit card statement parser. Extract structured data from this statement and return ONLY valid JSON — no markdown, no explanation, no code fences.
 
 Return this exact shape:
 {
@@ -88,17 +79,16 @@ Rules:
 - Purchases/charges are NEGATIVE (they increase debt)
 - If a field cannot be determined, use null
 - Include ALL transactions found in the statement
-- For US cards amounts are in USD, for Indian cards in INR — infer from context
+- For US cards amounts are in USD, for Indian cards in INR — infer from context`,
+    }
 
-Statement text:
-${excerpt}`,
-        },
-      ],
+    const message = await client.messages.create({
+      model: 'claude-3-5-haiku-20241022',
+      max_tokens: 2048,
+      messages: [{ role: 'user', content: [docBlock, textBlock] }],
     })
 
     const raw = (message.content[0] as { type: string; text: string }).text.trim()
-
-    // Strip any accidental markdown fences
     const jsonStr = raw.replace(/^```json?\s*/i, '').replace(/\s*```$/i, '').trim()
     const parsed: ParsedStatement = JSON.parse(jsonStr)
 
