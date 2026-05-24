@@ -325,22 +325,23 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Row 1: Donut (1/3) + Monthly Commitments (2/3) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
             {/* Donut — grouped by loan type */}
             <Card>
-              <CardHeader>
+              <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
                   <CardTitle className="text-sm">Debt by Category</CardTitle>
                   <div className="text-right">
-                    <p className="text-lg font-bold text-slate-800">{sym}{donutTotal.toLocaleString()}</p>
+                    <p className="text-base font-bold text-slate-800">{sym}{donutTotal.toLocaleString()}</p>
                     <p className="text-[10px] text-slate-400">total outstanding</p>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="pt-0">
-                <ResponsiveContainer width="100%" height={180}>
+                <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
-                    <Pie data={donutData} dataKey="value" innerRadius={50} outerRadius={78} paddingAngle={3} startAngle={90} endAngle={-270}>
+                    <Pie data={donutData} dataKey="value" innerRadius={44} outerRadius={68} paddingAngle={3} startAngle={90} endAngle={-270}>
                       {donutData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                     </Pie>
                     <Tooltip
@@ -349,20 +350,16 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                     />
                   </PieChart>
                 </ResponsiveContainer>
-                {/* Legend with % of total */}
-                <p className="text-[10px] text-slate-400 mb-1.5">% share of total debt</p>
-                <div className="space-y-1.5">
+                <p className="text-[10px] text-slate-400 mb-2">% share of total debt</p>
+                <div className="space-y-2">
                   {donutData.map((d, i) => {
                     const pct = donutTotal > 0 ? Math.round((d.value / donutTotal) * 100) : 0
                     return (
                       <div key={i} className="flex items-center gap-2 text-xs">
-                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
-                        <span className="text-gray-600 flex-1 truncate">{d.label}{d.count > 1 ? ` ×${d.count}` : ''}</span>
-                        <div className="w-20 bg-slate-100 rounded-full h-1.5 shrink-0">
-                          <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: d.color }} />
-                        </div>
-                        <span className="text-slate-400 w-7 text-right">{pct}%</span>
-                        <span className="font-semibold text-slate-700 w-20 text-right">{sym}{(d.value/1000).toFixed(0)}K</span>
+                        <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
+                        <span className="text-gray-600 flex-1 truncate text-[11px]">{d.label}{d.count > 1 ? ` ×${d.count}` : ''}</span>
+                        <span className="text-slate-400 w-6 text-right text-[11px]">{pct}%</span>
+                        <span className="font-semibold text-slate-700 w-16 text-right text-[11px]">{sym}{(d.value/1000).toFixed(0)}K</span>
                       </div>
                     )
                   })}
@@ -370,14 +367,25 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               </CardContent>
             </Card>
 
-            {/* Monthly outflow — single currency, respects INR/USD toggle */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Monthly Commitments · next 12 months</CardTitle>
+            {/* Monthly Commitments — 2 cols wide, taller chart, summary stats below */}
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-sm">Monthly Commitments</CardTitle>
+                    <p className="text-xs text-slate-400 mt-0.5">next 12 months · {viewCurrency}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-base font-bold text-slate-800">
+                      {sym}{Math.round(monthlyOutflow.reduce((s, m) => s + m.amount, 0)).toLocaleString()}
+                    </p>
+                    <p className="text-[10px] text-slate-400">12-month total</p>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="pt-0">
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={monthlyOutflow} barSize={18} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={monthlyOutflow} barSize={22} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                     <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={fmtAxis} axisLine={false} tickLine={false} />
@@ -389,20 +397,49 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                     <Bar dataKey="amount" fill="#6366f1" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
+                {/* Monthly stats row */}
+                <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-slate-100">
+                  {(() => {
+                    const amounts = monthlyOutflow.map(m => m.amount).filter(a => a > 0)
+                    const avg = amounts.length ? Math.round(amounts.reduce((s, a) => s + a, 0) / amounts.length) : 0
+                    const peak = Math.max(...(amounts.length ? amounts : [0]))
+                    const thisMonth = monthlyOutflow[0]?.amount ?? 0
+                    return [
+                      { label: 'This month', value: thisMonth },
+                      { label: 'Monthly avg', value: avg },
+                      { label: 'Peak month', value: peak },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="text-center">
+                        <p className="text-xs font-semibold text-slate-700">{sym}{value.toLocaleString()}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">{label}</p>
+                      </div>
+                    ))
+                  })()}
+                </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Projected Payoff */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Debt trajectory chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Debt Trajectory</CardTitle>
-                <p className="text-xs text-slate-400 -mt-1">Projected total outstanding over time</p>
+          {/* Row 2: Debt Trajectory (2/3) + Payoff Timeline (1/3) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+            {/* Debt trajectory chart — 2 cols wide */}
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-sm">Debt Trajectory</CardTitle>
+                    <p className="text-xs text-slate-400 mt-0.5">Projected outstanding · {viewCurrency}</p>
+                  </div>
+                  {debtFreeDate && (
+                    <div className="text-right">
+                      <p className="text-xs font-semibold text-indigo-600">{debtFreeDateFmt}</p>
+                      <p className="text-[10px] text-slate-400">debt-free date</p>
+                    </div>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="pt-0">
-                <ResponsiveContainer width="100%" height={200}>
+                <ResponsiveContainer width="100%" height={220}>
                   <AreaChart data={debtTrajectory} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
                     <defs>
                       <linearGradient id="debtGrad" x1="0" y1="0" x2="0" y2="1">
@@ -425,44 +462,44 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               </CardContent>
             </Card>
 
-            {/* Per-loan payoff timeline */}
+            {/* Per-loan payoff timeline — 1 col */}
             <Card>
-              <CardHeader>
+              <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Payoff Timeline</CardTitle>
                 <p className="text-xs text-slate-400 -mt-1">When each loan clears</p>
               </CardHeader>
-              <CardContent className="pt-0 space-y-2">
+              <CardContent className="pt-0 space-y-1">
                 {loanPayoffs.map(({ loan, payoffDate, monthsLeft, outstanding }) => {
                   const pct = debtTrajectory[0]?.amount > 0
                     ? Math.round((outstanding / debtTrajectory[0].amount) * 100) : 0
                   const color = LOAN_TYPE_COLORS[loan.loan_type] ?? '#6366f1'
                   return (
                     <Link key={loan.id} href={`/loans/${loan.id}`}
-                      className="flex items-center gap-3 group rounded-lg px-2 py-1.5 hover:bg-slate-50 transition-colors">
-                      <div className="w-1.5 h-8 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                      className="flex items-center gap-2 group rounded-lg px-2 py-2 hover:bg-slate-50 transition-colors">
+                      <div className="w-1 h-7 rounded-full shrink-0" style={{ backgroundColor: color }} />
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-slate-700 truncate group-hover:text-indigo-600">
+                        <p className="text-[11px] font-medium text-slate-700 truncate group-hover:text-indigo-600 leading-tight">
                           {loan.lender_name}
                         </p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="flex items-center gap-1 mt-1">
                           <div className="flex-1 bg-slate-100 rounded-full h-1">
-                            <div className="h-1 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+                            <div className="h-1 rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
                           </div>
-                          <span className="text-[10px] text-slate-400">{pct}%</span>
+                          <span className="text-[9px] text-slate-400">{pct}%</span>
                         </div>
                       </div>
                       <div className="text-right shrink-0">
                         {payoffDate ? (
                           <>
-                            <p className="text-xs font-semibold text-slate-700">
-                              {new Date(payoffDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                            <p className="text-[11px] font-semibold text-slate-700 leading-tight">
+                              {new Date(payoffDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })}
                             </p>
-                            <p className="text-[10px] text-slate-400">{monthsLeft}mo left</p>
+                            <p className="text-[9px] text-slate-400">{monthsLeft}mo</p>
                           </>
                         ) : (
                           <>
-                            <p className="text-xs font-semibold text-amber-600">Open-ended</p>
-                            <p className="text-[10px] text-slate-400">flexible</p>
+                            <p className="text-[11px] font-semibold text-amber-600 leading-tight">Flexible</p>
+                            <p className="text-[9px] text-slate-400">open</p>
                           </>
                         )}
                       </div>
