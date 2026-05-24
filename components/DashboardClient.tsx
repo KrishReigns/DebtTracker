@@ -64,11 +64,20 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
       outstandingPrincipal = state.outstandingPrincipal
       accruedInterest = state.accruedInterest
       // No fixed due date for flexible loans
+    } else if (loan.loan_type === 'credit_card') {
+      // Credit card: balance is loan.principal; due date from latest statement note
+      outstandingPrincipal = loan.principal
+      const lastTx = [...loanTx].sort((a, b) => b.payment_date.localeCompare(a.payment_date))[0]
+      const dueDateMatch = lastTx?.note?.match(/Due: (\d{4}-\d{2}-\d{2})/)
+      if (dueDateMatch) {
+        nextDueDate = dueDateMatch[1]
+        nextDueAmount = loan.principal
+        isOverdue = nextDueDate < today
+      }
     } else {
       // Fixed-EMI: outstanding = opening_balance of first non-paid, non-skipped row
       const pendingRows = loanSchedule.filter(r => r.status !== 'paid' && r.status !== 'skipped')
       outstandingPrincipal = pendingRows[0]?.opening_balance ?? 0
-      // Only mark overdue / show next due if loan is still active
       if (pendingRows[0] && loan.status === 'active') {
         nextDueDate = pendingRows[0].contractual_due_date
         nextDueAmount = pendingRows[0].emi_amount
@@ -82,24 +91,16 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
   const totalDebt = loanStats.reduce((s, l) => s + toView(l.outstandingPrincipal + l.accruedInterest, l.loan.currency), 0)
   const totalOriginal = loans.reduce((s, l) => s + toView(l.principal, l.currency), 0)
 
-  // Donut data — group loans < 3% of total into "Others"
-  const rawDonut = loanStats
-    .filter(l => l.outstandingPrincipal > 0)
-    .map(l => ({
-      name: `${l.loan.lender_name} (${LOAN_TYPE_LABELS[l.loan.loan_type]})`,
-      value: Math.round(toView(l.outstandingPrincipal, l.loan.currency)),
-      color: LOAN_TYPE_COLORS[l.loan.loan_type],
-    }))
-    .sort((a, b) => b.value - a.value)
-
-  const donutTotal = rawDonut.reduce((s, d) => s + d.value, 0)
-  const threshold = donutTotal * 0.03
-  const mainSlices = rawDonut.filter(d => d.value >= threshold)
-  const otherSlices = rawDonut.filter(d => d.value < threshold)
-  const othersValue = otherSlices.reduce((s, d) => s + d.value, 0)
-  const donutData = othersValue > 0
-    ? [...mainSlices, { name: `Others (${otherSlices.length} loans)`, value: othersValue, color: '#94a3b8' }]
-    : mainSlices
+  // Donut data — group by loan TYPE (more insightful than per-lender)
+  const typeMap: Record<string, { value: number; color: string; label: string; count: number }> = {}
+  for (const l of loanStats.filter(s => s.outstandingPrincipal > 0)) {
+    const t = l.loan.loan_type
+    if (!typeMap[t]) typeMap[t] = { value: 0, color: LOAN_TYPE_COLORS[t] ?? '#94a3b8', label: LOAN_TYPE_LABELS[t] ?? t, count: 0 }
+    typeMap[t].value += Math.round(toView(l.outstandingPrincipal, l.loan.currency))
+    typeMap[t].count++
+  }
+  const donutData = Object.values(typeMap).sort((a, b) => b.value - a.value)
+  const donutTotal = donutData.reduce((s, d) => s + d.value, 0)
 
   // Monthly outflow (next 12 months) — fixed-EMI only, from schedule
   const monthlyOutflow: { month: string; INR: number; USD: number }[] = []
@@ -117,14 +118,18 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
     monthlyOutflow.push({ month: monthStr.slice(5), INR: Math.round(inr), USD: Math.round(usd) })
   }
 
-  // Upcoming (due in next 30 days, not overdue) + overdue (past due, unpaid)
+  // Upcoming (due in next 30 days) + overdue — includes CC loans with due dates
   const in30 = new Date(new Date(today).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   const upcomingFixed = loanStats
-    .filter(l => l.loan.repayment_mode === 'fixed_emi' && l.nextDueDate && l.nextDueDate >= today && l.nextDueDate <= in30)
+    .filter(l => (l.loan.repayment_mode === 'fixed_emi' || l.loan.loan_type === 'credit_card')
+      && l.nextDueDate && l.nextDueDate >= today && l.nextDueDate <= in30)
     .sort((a, b) => (a.nextDueDate ?? '').localeCompare(b.nextDueDate ?? ''))
   const overdueFixed = loanStats
     .filter(l => l.isOverdue)
     .sort((a, b) => (a.nextDueDate ?? '').localeCompare(b.nextDueDate ?? ''))
+
+  // Total amount due in next 30 days
+  const totalDue30 = upcomingFixed.reduce((s, l) => s + toView(l.nextDueAmount, l.loan.currency), 0)
 
   const sym = CURRENCY_SYMBOLS[viewCurrency]
 
@@ -221,10 +226,11 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
             <Card>
               <CardContent className="pt-4">
                 <p className="text-xs text-gray-500">Due Next 30 Days</p>
-                <p className="text-2xl font-bold mt-1 text-orange-500">{upcomingFixed.length} EMIs</p>
-                {overdueFixed.length > 0 && (
-                  <p className="text-xs text-red-500 mt-1">{overdueFixed.length} overdue</p>
-                )}
+                <p className="text-2xl font-bold mt-1 text-orange-500">{sym}{Math.round(totalDue30).toLocaleString()}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {upcomingFixed.length} payment{upcomingFixed.length !== 1 ? 's' : ''}
+                  {overdueFixed.length > 0 && <span className="text-red-500"> · {overdueFixed.length} overdue</span>}
+                </p>
               </CardContent>
             </Card>
             <Card>
@@ -265,34 +271,41 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                 </div>
               </div>
               <p className="text-[10px] text-gray-400 text-center">
-                {progressPct}% of ₹{Math.round(totalOriginal).toLocaleString()} originally borrowed · interest grows daily on family loans
+                {progressPct}% of {sym}{Math.round(totalOriginal).toLocaleString()} originally borrowed · interest grows daily on family loans
               </p>
             </CardContent>
           </Card>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Donut */}
+            {/* Donut — grouped by loan type */}
             <Card>
-              <CardHeader><CardTitle className="text-sm">Debt Breakdown</CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle className="text-sm">Debt by Category</CardTitle>
+              </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="100%" height={200}>
                   <PieChart>
-                    <Pie data={donutData} dataKey="value" innerRadius={60} outerRadius={90} paddingAngle={2}>
+                    <Pie data={donutData} dataKey="value" innerRadius={55} outerRadius={85} paddingAngle={3}>
                       {donutData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                     </Pie>
-                    <Tooltip formatter={(v) => `${sym}${Number(v).toLocaleString()}`} />
+                    <Tooltip
+                      formatter={(v) => `${sym}${Number(v).toLocaleString()}`}
+                      contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
-                <div className="space-y-1 mt-2">
-                  {donutData.map((d, i) => (
-                    <div key={i} className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: d.color }} />
-                        <span className="text-gray-600 truncate max-w-40">{d.name}</span>
+                <div className="space-y-1.5 mt-1">
+                  {donutData.map((d, i) => {
+                    const pct = donutTotal > 0 ? Math.round((d.value / donutTotal) * 100) : 0
+                    return (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+                        <span className="text-gray-600 flex-1">{d.label}{d.count > 1 ? ` (${d.count})` : ''}</span>
+                        <span className="text-gray-400">{pct}%</span>
+                        <span className="font-semibold text-gray-700 w-24 text-right">{sym}{d.value.toLocaleString()}</span>
                       </div>
-                      <span className="font-medium">{sym}{d.value.toLocaleString()}</span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -318,23 +331,26 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
           {/* Overdue + upcoming payments */}
           {(overdueFixed.length > 0 || upcomingFixed.length > 0) && (
             <Card>
-              <CardHeader><CardTitle className="text-sm">
-                {overdueFixed.length > 0 ? 'Overdue & Upcoming EMIs' : 'Upcoming EMIs (next 30 days)'}
-              </CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle className="text-sm">
+                  {overdueFixed.length > 0 ? 'Overdue & Upcoming Payments' : 'Upcoming Payments (next 30 days)'}
+                </CardTitle>
+              </CardHeader>
               <CardContent>
                 <div className="divide-y divide-gray-100">
                   {[...overdueFixed, ...upcomingFixed].map(({ loan, nextDueDate, nextDueAmount, isOverdue }) => (
-                    <div key={loan.id} className="flex items-center justify-between py-2">
-                      <div>
-                        <Link href={`/loans/${loan.id}`} className="text-sm font-medium hover:text-indigo-600">
+                    <div key={loan.id} className="flex items-center justify-between py-2.5">
+                      <div className="min-w-0">
+                        <Link href={`/loans/${loan.id}`} className="text-sm font-medium hover:text-indigo-600 truncate block">
                           {loan.lender_name}
                         </Link>
-                        <p className="text-xs text-gray-500">
-                          {nextDueDate && formatDateShort(nextDueDate)}
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {LOAN_TYPE_LABELS[loan.loan_type]}
+                          {nextDueDate && <> · {formatDateShort(nextDueDate)}</>}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{formatCurrency(nextDueAmount, loan.currency)}</span>
+                      <div className="flex items-center gap-2 shrink-0 ml-3">
+                        <span className="text-sm font-semibold">{formatCurrency(nextDueAmount, loan.currency)}</span>
                         {isOverdue
                           ? <Badge variant="destructive" className="text-xs">Overdue</Badge>
                           : <Badge variant="outline" className="text-xs">Due Soon</Badge>
