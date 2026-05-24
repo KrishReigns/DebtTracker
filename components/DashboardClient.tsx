@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { format, addMonths, differenceInMonths } from 'date-fns'
 import { computeFamilyLoanState, formatCurrency, convertCurrency } from '@/lib/calculations'
@@ -31,6 +31,7 @@ interface LoanStats {
 
 export default function DashboardClient({ loans, schedules, transactions, exchangeRates }: Props) {
   const [viewCurrency, setViewCurrency] = useState<'INR' | 'USD'>('INR')
+  const [extraMonthly, setExtraMonthly] = useState(0)
   const today = new Date().toISOString().split('T')[0]
 
   function getRate(from: 'INR' | 'USD', to: 'INR' | 'USD'): number {
@@ -146,6 +147,40 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
     }
     debtTrajectory.push({ month: format(d, 'MMM yy'), amount: Math.round(total) })
   }
+
+  // Accelerated trajectory: what if user pays extra each month?
+  // We apply extraMonthly on top of scheduled reductions each month.
+  const accelTrajectory = useMemo<number[] | null>(() => {
+    if (extraMonthly <= 0 || debtTrajectory.length === 0) return null
+    const result: number[] = []
+    let balance = debtTrajectory[0].amount
+    for (let i = 0; i < debtTrajectory.length; i++) {
+      result.push(Math.round(Math.max(0, balance)))
+      // How much does the base schedule reduce debt this month?
+      const baseReduction = i < debtTrajectory.length - 1
+        ? Math.max(0, debtTrajectory[i].amount - debtTrajectory[i + 1].amount)
+        : debtTrajectory[i].amount
+      balance = Math.max(0, balance - baseReduction - extraMonthly)
+    }
+    return result
+  }, [extraMonthly, debtTrajectory])
+
+  const monthsSooner = useMemo<number>(() => {
+    if (!accelTrajectory || accelTrajectory.length === 0) return 0
+    const basePayoff = debtTrajectory.findIndex(p => p.amount <= 0)
+    const accelPayoff = accelTrajectory.findIndex(v => v <= 0)
+    const baseIdx = basePayoff === -1 ? debtTrajectory.length : basePayoff
+    const accelIdx = accelPayoff === -1 ? accelTrajectory.length : accelPayoff
+    return Math.max(0, baseIdx - accelIdx)
+  }, [accelTrajectory, debtTrajectory])
+
+  const trajectoryData = useMemo(() =>
+    debtTrajectory.map((p, i) => ({
+      month: p.month,
+      current: p.amount,
+      ...(accelTrajectory ? { accelerated: accelTrajectory[i] ?? 0 } : {}),
+    })),
+  [debtTrajectory, accelTrajectory])
 
   // Per-loan payoff dates
   const loanPayoffs = loans.map(loan => {
@@ -434,13 +469,26 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
             {/* Debt Trajectory — chart fills to match payoff list height */}
             <Card className="flex flex-col">
               <CardHeader className="pb-2 shrink-0">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
                     <CardTitle className="text-sm">Debt Trajectory</CardTitle>
                     <p className="text-xs text-slate-400 mt-0.5">Projected outstanding · {viewCurrency}</p>
+                    {/* Extra payment input */}
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <span className="text-[10px] text-slate-400 shrink-0">Pay extra/month:</span>
+                      <span className="text-[10px] text-slate-500 shrink-0">{sym}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={extraMonthly || ''}
+                        onChange={e => setExtraMonthly(Math.max(0, Number(e.target.value) || 0))}
+                        className="w-24 text-xs border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200"
+                      />
+                    </div>
                   </div>
                   {debtFreeDate && (
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <p className="text-xs font-semibold text-indigo-600">{debtFreeDateFmt}</p>
                       <p className="text-[10px] text-slate-400">debt-free date</p>
                     </div>
@@ -450,26 +498,58 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               <CardContent className="pt-0 flex flex-col flex-1">
                 <div className="flex-1 min-h-[220px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={debtTrajectory} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+                    <AreaChart data={trajectoryData} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
                       <defs>
                         <linearGradient id="debtGrad" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15} />
                           <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                         </linearGradient>
+                        <linearGradient id="accelGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.12} />
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                        </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                       <XAxis dataKey="month" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false}
-                        interval={Math.floor(debtTrajectory.length / 6)} />
+                        interval={Math.floor(trajectoryData.length / 6)} />
                       <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={fmtAxis} axisLine={false} tickLine={false} />
                       <Tooltip
-                        formatter={(v) => [`${sym}${Number(v).toLocaleString()}`, 'Outstanding']}
+                        formatter={(v, name) => [
+                          `${sym}${Number(v).toLocaleString()}`,
+                          name === 'current' ? 'Current path' : `+${sym}${extraMonthly.toLocaleString()}/mo`
+                        ]}
                         contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
                       />
-                      <Area type="monotone" dataKey="amount" stroke="#6366f1" strokeWidth={2}
+                      <Area type="monotone" dataKey="current" stroke="#6366f1" strokeWidth={2}
                         fill="url(#debtGrad)" dot={false} />
+                      {accelTrajectory && (
+                        <Area type="monotone" dataKey="accelerated" stroke="#10b981" strokeWidth={2}
+                          strokeDasharray="6 3" fill="url(#accelGrad)" dot={false} />
+                      )}
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
+                {/* Savings callout */}
+                {accelTrajectory && monthsSooner > 0 && (
+                  <div className="shrink-0 mt-3 flex items-center gap-2.5 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                    <span className="text-lg shrink-0">🎯</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-emerald-700">
+                        Debt-free {monthsSooner} month{monthsSooner !== 1 ? 's' : ''} sooner
+                      </p>
+                      <p className="text-[10px] text-emerald-600 mt-0.5">
+                        with {sym}{extraMonthly.toLocaleString()} extra per month · <span className="text-slate-400">green dashed line</span>
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {accelTrajectory && monthsSooner === 0 && (
+                  <div className="shrink-0 mt-3 px-3 py-2 bg-slate-50 rounded-lg">
+                    <p className="text-[10px] text-slate-400 text-center">
+                      Extra payment too small to accelerate payoff within projection window
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
