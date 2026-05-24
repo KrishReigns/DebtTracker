@@ -109,86 +109,122 @@ export default function StatementImportTab() {
     }
   }
 
+  async function checkDuplicate(card: Loan): Promise<ExistingStatement | null> {
+    if (!statement?.statementDate) return null
+    const month = statement.statementDate.slice(0, 7)
+    const { data: dup } = await createClient()
+      .from('payment_transactions').select('id, payment_date, amount, note')
+      .eq('loan_id', card.id).eq('payment_method', 'statement_import')
+      .gte('payment_date', `${month}-01`).lte('payment_date', `${month}-31`)
+      .maybeSingle()
+    return (dup as ExistingStatement | null)
+  }
+
   async function proceedToPreview() {
     if (!statement || !selectedCard) return
-    // Check for same-month duplicate
-    if (statement.statementDate) {
-      const month = statement.statementDate.slice(0, 7)
-      const { data: dup } = await createClient()
-        .from('payment_transactions').select('id, payment_date, amount, note')
-        .eq('loan_id', selectedCard.id).eq('payment_method', 'statement_import')
-        .gte('payment_date', `${month}-01`).lte('payment_date', `${month}-31`)
-        .maybeSingle()
-      if (dup) { setExisting(dup as ExistingStatement); setStep('duplicate'); return }
-    }
+    const dup = await checkDuplicate(selectedCard)
+    if (dup) { setExisting(dup); setStep('duplicate'); return }
     setStep('preview')
+  }
+
+  /** Core import logic — operates on any card (existing or just-created) */
+  async function runImport(card: Loan, replaceExistingId?: string) {
+    if (!statement) return
+    const supabase = createClient()
+    const paymentTotal = statement.transactions
+      .filter(tx => tx.type === 'payment' || tx.type === 'credit' || tx.amount > 0)
+      .reduce((sum, tx) => sum + Math.abs(tx.amount), 0)
+    const period = statement.statementDate
+      ? new Date(statement.statementDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : 'Unknown period'
+
+    if (replaceExistingId) {
+      await supabase.from('payment_transactions').delete().eq('id', replaceExistingId)
+    }
+
+    await supabase.from('payment_transactions').insert({
+      loan_id: card.id,
+      payment_date: statement.statementDate ?? new Date().toISOString().split('T')[0],
+      amount: paymentTotal,
+      note: `Statement ${period}${statement.newBalance != null ? ` · Balance: ${formatCurrency(statement.newBalance, cur(statement.currency))}` : ''}${statement.dueDate ? ` · Due: ${statement.dueDate}` : ''}`,
+      payment_method: 'statement_import',
+      principal_applied: null, interest_applied: null, schedule_row_id: null,
+    })
+
+    if (statement.newBalance != null) {
+      await supabase.from('loans').update({ principal: statement.newBalance }).eq('id', card.id)
+      const dueDate = statement.dueDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      const { data: schedRows } = await supabase
+        .from('payment_schedules').select('id, status').eq('loan_id', card.id).order('installment_number')
+      if (schedRows && schedRows.length > 0) {
+        const pendingIds = schedRows.filter(r => r.status === 'pending').map(r => r.id)
+        if (pendingIds.length > 0) await supabase.from('payment_schedules').delete().in('id', pendingIds)
+        await supabase.from('payment_schedules').insert({
+          loan_id: card.id,
+          installment_number: (schedRows.length - pendingIds.length) + 1,
+          contractual_due_date: dueDate, planned_pay_date: dueDate,
+          opening_balance: statement.newBalance, emi_amount: statement.newBalance,
+          principal_amount: statement.newBalance, interest_amount: 0, closing_balance: 0,
+          amount_paid: null, rate: card.interest_rate, status: 'pending',
+        })
+      }
+    }
   }
 
   async function handleImport(replaceExisting = false) {
     if (!statement || !selectedCard) return
     setStep('importing')
     try {
-      const supabase = createClient()
-      const paymentTotal = statement.transactions
-        .filter(tx => tx.type === 'payment' || tx.type === 'credit' || tx.amount > 0)
-        .reduce((sum, tx) => sum + Math.abs(tx.amount), 0)
-
-      const period = statement.statementDate
-        ? new Date(statement.statementDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-        : 'Unknown period'
-
-      if (replaceExisting && existing) {
-        await supabase.from('payment_transactions').delete().eq('id', existing.id)
-      }
-
-      await supabase.from('payment_transactions').insert({
-        loan_id: selectedCard.id,
-        payment_date: statement.statementDate ?? new Date().toISOString().split('T')[0],
-        amount: paymentTotal,
-        note: `Statement ${period}${statement.newBalance != null ? ` · Balance: ${formatCurrency(statement.newBalance, cur(statement.currency))}` : ''}${statement.dueDate ? ` · Due: ${statement.dueDate}` : ''}`,
-        payment_method: 'statement_import',
-        principal_applied: null, interest_applied: null, schedule_row_id: null,
-      })
-
-      // Update loan principal to reflect current statement balance
-      if (statement.newBalance != null) {
-        await supabase.from('loans').update({ principal: statement.newBalance }).eq('id', selectedCard.id)
-
-        // For fixed-EMI credit cards: refresh the schedule row so the detail page
-        // shows the current statement balance and due date, not the original amounts
-        const dueDate = statement.dueDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-        const { data: schedRows } = await supabase
-          .from('payment_schedules')
-          .select('id, status')
-          .eq('loan_id', selectedCard.id)
-          .order('installment_number')
-
-        if (schedRows && schedRows.length > 0) {
-          // Delete all pending rows and replace with a single current-balance row
-          const pendingIds = schedRows.filter(r => r.status === 'pending').map(r => r.id)
-          if (pendingIds.length > 0) {
-            await supabase.from('payment_schedules').delete().in('id', pendingIds)
-          }
-          await supabase.from('payment_schedules').insert({
-            loan_id: selectedCard.id,
-            installment_number: (schedRows.length - pendingIds.length) + 1,
-            contractual_due_date: dueDate,
-            planned_pay_date: dueDate,
-            opening_balance: statement.newBalance,
-            emi_amount: statement.newBalance,
-            principal_amount: statement.newBalance,
-            interest_amount: 0,
-            closing_balance: 0,
-            amount_paid: null,
-            rate: selectedCard.interest_rate,
-            status: 'pending',
-          })
-        }
-      }
-
+      await runImport(selectedCard, replaceExisting && existing ? existing.id : undefined)
       setStep('done')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed'); setStep('error')
+    }
+  }
+
+  /** Create a new credit card loan from the parsed statement, then import into it */
+  async function handleCreateAndImport() {
+    if (!statement) return
+    setStep('importing')
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
+
+      const today = new Date().toISOString().split('T')[0]
+      const { data: newLoan, error: loanErr } = await supabase.from('loans').insert({
+        user_id: user.id,
+        lender_name: statement.bank,
+        loan_type: 'credit_card',
+        repayment_mode: 'fixed_emi',
+        interest_type: 'revolving',
+        currency: statement.currency,
+        principal: statement.newBalance ?? 0,
+        interest_rate: 0,
+        start_date: statement.statementDate ?? today,
+        status: 'active',
+        tenure_months: 1,
+      }).select().single()
+
+      if (loanErr || !newLoan) throw new Error(loanErr?.message ?? 'Failed to create card')
+
+      // Create an initial schedule row so the detail page renders correctly
+      const dueDate = statement.dueDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      await supabase.from('payment_schedules').insert({
+        loan_id: newLoan.id,
+        installment_number: 1,
+        contractual_due_date: dueDate, planned_pay_date: dueDate,
+        opening_balance: statement.newBalance ?? 0, emi_amount: statement.newBalance ?? 0,
+        principal_amount: statement.newBalance ?? 0, interest_amount: 0, closing_balance: 0,
+        amount_paid: null, rate: 0, status: 'pending',
+      })
+
+      await runImport(newLoan as Loan)
+      setSelectedCardId(newLoan.id)
+      setCards(prev => [...prev, newLoan as Loan])
+      setStep('done')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create card'); setStep('error')
     }
   }
 
@@ -250,56 +286,82 @@ export default function StatementImportTab() {
 
       {/* Confirm which card this statement belongs to */}
       {step === 'confirm-card' && statement && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-5">
+
+          {/* Parsed statement summary */}
           <div>
-            <p className="font-medium text-slate-800">Statement detected: <span className="text-indigo-600">{statement.bank}</span></p>
+            <p className="font-medium text-slate-800">
+              Statement read: <span className="text-indigo-600">{statement.bank}</span>
+            </p>
             <p className="text-xs text-slate-400 mt-0.5">
-              {statement.statementDate ?? '—'} · Balance: {statement.newBalance != null ? formatCurrency(statement.newBalance, cur(statement.currency)) : '—'}
+              {statement.statementDate ?? '—'} · Balance:{' '}
+              {statement.newBalance != null ? formatCurrency(statement.newBalance, cur(statement.currency)) : '—'}
+              {statement.dueDate ? ` · Due: ${statement.dueDate}` : ''}
             </p>
           </div>
 
+          {/* Primary action: create this as a new card and import immediately */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Which card is this statement for?
-            </label>
-            {cards.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 p-4 text-center space-y-2">
-                <p className="text-sm text-slate-400">No active credit card loans found.</p>
-                <a href="/loans/new" className="inline-block text-sm font-medium text-indigo-600 hover:text-indigo-700 underline">
-                  + Create your first credit card →
-                </a>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Recommended</p>
+            <button onClick={handleCreateAndImport}
+              className="w-full text-left rounded-xl border-2 border-indigo-300 bg-indigo-50 px-4 py-3 hover:bg-indigo-100 hover:border-indigo-400 transition-all group">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-indigo-800 group-hover:text-indigo-900">
+                    Add &ldquo;{statement.bank}&rdquo; and import
+                  </p>
+                  <p className="text-xs text-indigo-500 mt-0.5">
+                    Creates a new {statement.currency} credit card · imports this statement instantly
+                  </p>
+                </div>
+                <svg className="w-5 h-5 text-indigo-400 shrink-0 ml-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                </svg>
               </div>
+            </button>
+          </div>
+
+          {/* Secondary: link to an existing card */}
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+              Or link to an existing card
+            </p>
+            {cards.length === 0 ? (
+              <p className="text-xs text-slate-400">No active credit card loans found.</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {cards.map(card => (
-                  <button key={card.id} onClick={() => setSelectedCardId(card.id)}
-                    className={`text-left rounded-lg border px-3 py-2.5 transition-all text-sm ${selectedCardId === card.id
-                      ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-300'
-                      : 'border-slate-200 hover:border-indigo-200'}`}>
-                    <p className="font-medium text-slate-800">{card.lender_name}</p>
-                    <p className="text-xs text-slate-400">{card.currency} · {card.interest_rate}% p.a.</p>
-                  </button>
-                ))}
-                {/* Create new card inline */}
-                <a href="/loans/new"
-                  className="flex items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2.5 text-sm text-slate-500 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50/40 transition-all">
-                  <span className="text-lg leading-none">+</span>
-                  <div>
-                    <p className="font-medium">Add new card</p>
-                    <p className="text-xs text-slate-400">Chase, Citi, Amex, Capital One…</p>
-                  </div>
-                </a>
+                {cards.map(card => {
+                  const currencyMismatch = card.currency !== statement.currency
+                  return (
+                    <button key={card.id} onClick={() => setSelectedCardId(card.id)}
+                      className={`text-left rounded-lg border px-3 py-2.5 transition-all text-sm ${
+                        selectedCardId === card.id
+                          ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-300'
+                          : currencyMismatch
+                            ? 'border-slate-200 opacity-50 hover:opacity-70'
+                            : 'border-slate-200 hover:border-indigo-200'
+                      }`}>
+                      <p className="font-medium text-slate-800">{card.lender_name}</p>
+                      <p className="text-xs text-slate-400">
+                        {card.currency} · {card.interest_rate}% p.a.
+                        {currencyMismatch && <span className="ml-1 text-amber-500">· different currency</span>}
+                      </p>
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>
 
-          <div className="flex gap-2 pt-1">
+          <div className="flex gap-2 pt-1 border-t border-slate-100">
             <button onClick={reset} className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
-              ← Upload different file
+              ← Back
             </button>
             <button onClick={proceedToPreview} disabled={!selectedCardId}
-              className="flex-1 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 transition-colors">
-              {selectedCardId ? 'Continue →' : 'Select a card'}
+              className="flex-1 px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 disabled:opacity-30 transition-colors">
+              {selectedCardId
+                ? `Import into ${cards.find(c => c.id === selectedCardId)?.lender_name} →`
+                : 'Select an existing card above'}
             </button>
           </div>
         </div>

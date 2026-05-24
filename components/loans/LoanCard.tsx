@@ -32,7 +32,9 @@ const LOAN_TYPE_BG: Record<string, string> = {
 
 export default function LoanCard({ loan, summary }: Props) {
   const { paidCount, totalCount, remainingPrincipal, nextEMI, nextDueDate, accruedInterest, isClosed } = summary
-  const isFlexible = loan.repayment_mode === 'flexible_manual'
+  const isCreditCard = loan.loan_type === 'credit_card'
+  // credit cards use fixed_emi mode but behave as revolving — treat separately
+  const isFlexible = loan.repayment_mode === 'flexible_manual' && !isCreditCard
   const isCls = loan.status !== 'active'
   const progress = totalCount > 0 ? Math.round((paidCount / totalCount) * 100) : 0
   const accentColor = LOAN_TYPE_COLORS[loan.loan_type] ?? '#6366f1'
@@ -97,7 +99,11 @@ export default function LoanCard({ loan, summary }: Props) {
             {/* Row 2: Primary amount */}
             <div className="flex justify-between items-center">
               <span className="text-xs text-slate-400">
-                {isCls ? 'Principal' : isFlexible ? 'Outstanding' : 'Remaining'}
+                {isCls
+                  ? (isCreditCard ? 'Last balance' : 'Principal')
+                  : isCreditCard ? 'Balance'
+                  : isFlexible ? 'Outstanding'
+                  : 'Remaining'}
               </span>
               <span className={`text-lg font-bold leading-tight ${
                 isCls ? 'text-slate-600' : NUM_COLORS.outstanding
@@ -111,9 +117,9 @@ export default function LoanCard({ loan, summary }: Props) {
 
             {/* Row 3: Secondary info */}
             {isCls ? (
-              // Closed: payment count — same label and format for both types
+              // Closed: for credit cards show statement count; for others show payment count
               <div className="flex justify-between items-center">
-                <span className="text-xs text-slate-400">Payments made</span>
+                <span className="text-xs text-slate-400">{isCreditCard ? 'Statements' : 'Payments made'}</span>
                 <span className="text-xs font-semibold text-slate-500">
                   {paidCount > 0 ? paidCount : '—'}
                 </span>
@@ -126,6 +132,14 @@ export default function LoanCard({ loan, summary }: Props) {
                   (accruedInterest ?? 0) > 0 ? NUM_COLORS.interest : 'text-slate-400'
                 }`}>
                   {formatCurrency(accruedInterest ?? 0, loan.currency)}
+                </span>
+              </div>
+            ) : isCreditCard ? (
+              // Credit card active: payment due date
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-slate-400">Payment Due</span>
+                <span className={`text-xs font-semibold ${isOverdue ? NUM_COLORS.outstanding : 'text-slate-600'}`}>
+                  {nextDueDate ? formatDate(nextDueDate) : '—'}
                 </span>
               </div>
             ) : (
@@ -155,6 +169,18 @@ export default function LoanCard({ loan, summary }: Props) {
                   {formatCurrency(remainingPrincipal + (accruedInterest ?? 0), loan.currency)}
                 </span>
               </div>
+            ) : isCreditCard ? (
+              // Credit card active: overdue indicator or revolving label
+              <div className={`flex justify-between items-center rounded-lg px-2.5 py-1.5 border ${
+                isOverdue ? 'bg-red-50 border-red-200' : 'bg-rose-50/40 border-rose-100'
+              }`}>
+                <span className={`text-xs font-medium ${isOverdue ? 'text-red-600' : 'text-rose-700'}`}>
+                  {isOverdue ? '⚠ Overdue' : 'Revolving'}
+                </span>
+                <span className={`text-xs font-semibold ${isOverdue ? NUM_COLORS.outstanding : 'text-rose-600'}`}>
+                  {paidCount > 0 ? `${paidCount} stmt${paidCount !== 1 ? 's' : ''}` : 'No statements yet'}
+                </span>
+              </div>
             ) : (
               // Fixed-EMI active: due date
               <div className={`flex justify-between items-center rounded-lg px-2.5 py-1.5 border ${
@@ -169,29 +195,42 @@ export default function LoanCard({ loan, summary }: Props) {
               </div>
             )}
 
-            {/* Row 5: Progress bar — all active loans (always rendered so card heights stay equal) */}
-            {!isCls && (() => {
-              const pct = isFlexible
-                ? (loan.principal > 0 ? Math.round(((loan.principal - remainingPrincipal) / loan.principal) * 100) : 0)
-                : progress
-              const label = isFlexible
-                ? `${paidCount} payment${paidCount !== 1 ? 's' : ''} made`
-                : `${paidCount} of ${totalCount} paid`
-              return (
+            {/* Row 5: Progress / statement tracker — all active loans (always rendered so card heights stay equal) */}
+            {!isCls && (
+              isCreditCard ? (
+                // Credit cards: no meaningful progress % — show statement count + revolving indicator
                 <div className="space-y-1 pt-0.5">
                   <div className="flex justify-between text-xs text-slate-400">
-                    <span>{label}</span>
-                    <span className={pct === 100 ? 'text-emerald-600 font-semibold' : ''}>{pct}%</span>
+                    <span>{paidCount} statement{paidCount !== 1 ? 's' : ''} imported</span>
+                    <span className="text-slate-300">revolving</span>
                   </div>
-                  <div className="relative h-1.5 rounded-full bg-slate-200 overflow-hidden">
-                    <div
-                      className="absolute left-0 top-0 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${pct}%`, backgroundColor: accentColor }}
-                    />
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: `${accentColor}22` }}>
+                    <div className="h-full rounded-full w-full opacity-40" style={{ backgroundColor: accentColor }} />
                   </div>
                 </div>
-              )
-            })()}
+              ) : (() => {
+                const pct = isFlexible
+                  ? (loan.principal > 0 ? Math.round(((loan.principal - remainingPrincipal) / loan.principal) * 100) : 0)
+                  : progress
+                const label = isFlexible
+                  ? `${paidCount} payment${paidCount !== 1 ? 's' : ''} made`
+                  : `${paidCount} of ${totalCount} paid`
+                return (
+                  <div className="space-y-1 pt-0.5">
+                    <div className="flex justify-between text-xs text-slate-400">
+                      <span>{label}</span>
+                      <span className={pct === 100 ? 'text-emerald-600 font-semibold' : ''}>{pct}%</span>
+                    </div>
+                    <div className="relative h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                      <div
+                        className="absolute left-0 top-0 h-full rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%`, backgroundColor: accentColor }}
+                      />
+                    </div>
+                  </div>
+                )
+              })()
+            )}
           </div>
 
           {/* ── Footer ── */}
