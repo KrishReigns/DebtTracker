@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase-server'
 import LoanDetailClient from '@/components/loans/LoanDetailClient'
 import ExportToolbar from '@/components/loans/ExportToolbar'
+import DeleteLoanButton from '@/components/loans/DeleteLoanButton'
 import { computeFamilyLoanState } from '@/lib/calculations'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -46,6 +47,7 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <DeleteLoanButton loanId={id} loanName={loan.lender_name} />
           <ExportToolbar
             loan={typedLoan}
             scheduleRows={(scheduleRows ?? []) as PaymentSchedule[]}
