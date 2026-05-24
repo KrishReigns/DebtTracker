@@ -325,11 +325,11 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
             </CardContent>
           </Card>
 
-          {/* Row 1: Donut (1/3) + Monthly Commitments (2/3) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-            {/* Donut — grouped by loan type */}
-            <Card>
-              <CardHeader className="pb-2">
+          {/* Row 1: Donut + Monthly Commitments — equal height, charts fill the card */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Donut — natural height set by chart + legend */}
+            <Card className="flex flex-col">
+              <CardHeader className="pb-2 shrink-0">
                 <div className="flex items-start justify-between">
                   <CardTitle className="text-sm">Debt by Category</CardTitle>
                   <div className="text-right">
@@ -338,28 +338,35 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-0">
-                <ResponsiveContainer width="100%" height={160}>
-                  <PieChart>
-                    <Pie data={donutData} dataKey="value" innerRadius={44} outerRadius={68} paddingAngle={3} startAngle={90} endAngle={-270}>
-                      {donutData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                    </Pie>
-                    <Tooltip
-                      formatter={(v) => [`${sym}${Number(v).toLocaleString()}`, 'Outstanding']}
-                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <p className="text-[10px] text-slate-400 mb-2">% share of total debt</p>
-                <div className="space-y-2">
+              <CardContent className="pt-0 flex flex-col flex-1">
+                {/* Chart fills available space, min height so it looks good standalone */}
+                <div className="flex-1 min-h-[180px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={donutData} dataKey="value" innerRadius={50} outerRadius={80} paddingAngle={3} startAngle={90} endAngle={-270}>
+                        {donutData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                      </Pie>
+                      <Tooltip
+                        formatter={(v) => [`${sym}${Number(v).toLocaleString()}`, 'Outstanding']}
+                        contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                {/* Legend pinned below chart */}
+                <div className="shrink-0 space-y-2 pt-2">
+                  <p className="text-[10px] text-slate-400">% share of total debt</p>
                   {donutData.map((d, i) => {
                     const pct = donutTotal > 0 ? Math.round((d.value / donutTotal) * 100) : 0
                     return (
                       <div key={i} className="flex items-center gap-2 text-xs">
-                        <div className="w-2 h-2 rounded-full shrink-0" style={{ background: d.color }} />
-                        <span className="text-gray-600 flex-1 truncate text-[11px]">{d.label}{d.count > 1 ? ` ×${d.count}` : ''}</span>
-                        <span className="text-slate-400 w-6 text-right text-[11px]">{pct}%</span>
-                        <span className="font-semibold text-slate-700 w-16 text-right text-[11px]">{sym}{(d.value/1000).toFixed(0)}K</span>
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+                        <span className="text-gray-600 flex-1 truncate">{d.label}{d.count > 1 ? ` ×${d.count}` : ''}</span>
+                        <div className="w-16 bg-slate-100 rounded-full h-1.5 shrink-0">
+                          <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: d.color }} />
+                        </div>
+                        <span className="text-slate-400 w-7 text-right">{pct}%</span>
+                        <span className="font-semibold text-slate-700 w-20 text-right">{sym}{(d.value/1000).toFixed(0)}K</span>
                       </div>
                     )
                   })}
@@ -367,9 +374,9 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               </CardContent>
             </Card>
 
-            {/* Monthly Commitments — 2 cols wide, taller chart, summary stats below */}
-            <Card className="lg:col-span-2">
-              <CardHeader className="pb-2">
+            {/* Monthly Commitments — chart grows to fill same height as donut card */}
+            <Card className="flex flex-col">
+              <CardHeader className="pb-2 shrink-0">
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-sm">Monthly Commitments</CardTitle>
@@ -383,29 +390,31 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-0">
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={monthlyOutflow} barSize={22} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={fmtAxis} axisLine={false} tickLine={false} />
-                    <Tooltip
-                      formatter={(v) => [`${sym}${Number(v).toLocaleString()}`, 'Due']}
-                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
-                      cursor={{ fill: '#f8fafc' }}
-                    />
-                    <Bar dataKey="amount" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-                {/* Monthly stats row */}
-                <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-slate-100">
+              <CardContent className="pt-0 flex flex-col flex-1">
+                {/* Chart grows to fill — matches donut card height automatically */}
+                <div className="flex-1 min-h-[180px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={monthlyOutflow} barSize={20} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                      <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={fmtAxis} axisLine={false} tickLine={false} />
+                      <Tooltip
+                        formatter={(v) => [`${sym}${Number(v).toLocaleString()}`, 'Due']}
+                        contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                        cursor={{ fill: '#f8fafc' }}
+                      />
+                      <Bar dataKey="amount" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                {/* Stats pinned at the bottom — mirrors the legend area on the donut card */}
+                <div className="shrink-0 grid grid-cols-3 gap-3 pt-3 mt-2 border-t border-slate-100">
                   {(() => {
                     const amounts = monthlyOutflow.map(m => m.amount).filter(a => a > 0)
                     const avg = amounts.length ? Math.round(amounts.reduce((s, a) => s + a, 0) / amounts.length) : 0
                     const peak = Math.max(...(amounts.length ? amounts : [0]))
-                    const thisMonth = monthlyOutflow[0]?.amount ?? 0
                     return [
-                      { label: 'This month', value: thisMonth },
+                      { label: 'This month', value: monthlyOutflow[0]?.amount ?? 0 },
                       { label: 'Monthly avg', value: avg },
                       { label: 'Peak month', value: peak },
                     ].map(({ label, value }) => (
@@ -420,11 +429,11 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
             </Card>
           </div>
 
-          {/* Row 2: Debt Trajectory (2/3) + Payoff Timeline (1/3) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-            {/* Debt trajectory chart — 2 cols wide */}
-            <Card className="lg:col-span-2">
-              <CardHeader className="pb-2">
+          {/* Row 2: Debt Trajectory + Payoff Timeline — equal height, trajectory fills */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Debt Trajectory — chart fills to match payoff list height */}
+            <Card className="flex flex-col">
+              <CardHeader className="pb-2 shrink-0">
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-sm">Debt Trajectory</CardTitle>
@@ -438,68 +447,70 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                   )}
                 </div>
               </CardHeader>
-              <CardContent className="pt-0">
-                <ResponsiveContainer width="100%" height={220}>
-                  <AreaChart data={debtTrajectory} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="debtGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15} />
-                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis dataKey="month" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false}
-                      interval={Math.floor(debtTrajectory.length / 6)} />
-                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={fmtAxis} axisLine={false} tickLine={false} />
-                    <Tooltip
-                      formatter={(v) => [`${sym}${Number(v).toLocaleString()}`, 'Outstanding']}
-                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
-                    />
-                    <Area type="monotone" dataKey="amount" stroke="#6366f1" strokeWidth={2}
-                      fill="url(#debtGrad)" dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <CardContent className="pt-0 flex flex-col flex-1">
+                <div className="flex-1 min-h-[220px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={debtTrajectory} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="debtGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15} />
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                      <XAxis dataKey="month" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false}
+                        interval={Math.floor(debtTrajectory.length / 6)} />
+                      <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={fmtAxis} axisLine={false} tickLine={false} />
+                      <Tooltip
+                        formatter={(v) => [`${sym}${Number(v).toLocaleString()}`, 'Outstanding']}
+                        contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                      />
+                      <Area type="monotone" dataKey="amount" stroke="#6366f1" strokeWidth={2}
+                        fill="url(#debtGrad)" dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
               </CardContent>
             </Card>
 
-            {/* Per-loan payoff timeline — 1 col */}
+            {/* Payoff Timeline — natural height from list, trajectory matches it */}
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Payoff Timeline</CardTitle>
                 <p className="text-xs text-slate-400 -mt-1">When each loan clears</p>
               </CardHeader>
-              <CardContent className="pt-0 space-y-1">
+              <CardContent className="pt-0 space-y-0.5">
                 {loanPayoffs.map(({ loan, payoffDate, monthsLeft, outstanding }) => {
                   const pct = debtTrajectory[0]?.amount > 0
                     ? Math.round((outstanding / debtTrajectory[0].amount) * 100) : 0
                   const color = LOAN_TYPE_COLORS[loan.loan_type] ?? '#6366f1'
                   return (
                     <Link key={loan.id} href={`/loans/${loan.id}`}
-                      className="flex items-center gap-2 group rounded-lg px-2 py-2 hover:bg-slate-50 transition-colors">
-                      <div className="w-1 h-7 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                      className="flex items-center gap-3 group rounded-lg px-2 py-2.5 hover:bg-slate-50 transition-colors">
+                      <div className="w-1 h-8 rounded-full shrink-0" style={{ backgroundColor: color }} />
                       <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-medium text-slate-700 truncate group-hover:text-indigo-600 leading-tight">
+                        <p className="text-xs font-medium text-slate-700 truncate group-hover:text-indigo-600">
                           {loan.lender_name}
                         </p>
-                        <div className="flex items-center gap-1 mt-1">
+                        <div className="flex items-center gap-1.5 mt-1">
                           <div className="flex-1 bg-slate-100 rounded-full h-1">
                             <div className="h-1 rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
                           </div>
-                          <span className="text-[9px] text-slate-400">{pct}%</span>
+                          <span className="text-[10px] text-slate-400 w-6 text-right">{pct}%</span>
                         </div>
                       </div>
                       <div className="text-right shrink-0">
                         {payoffDate ? (
                           <>
-                            <p className="text-[11px] font-semibold text-slate-700 leading-tight">
-                              {new Date(payoffDate).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })}
+                            <p className="text-xs font-semibold text-slate-700">
+                              {new Date(payoffDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
                             </p>
-                            <p className="text-[9px] text-slate-400">{monthsLeft}mo</p>
+                            <p className="text-[10px] text-slate-400">{monthsLeft}mo left</p>
                           </>
                         ) : (
                           <>
-                            <p className="text-[11px] font-semibold text-amber-600 leading-tight">Flexible</p>
-                            <p className="text-[9px] text-slate-400">open</p>
+                            <p className="text-xs font-semibold text-amber-600">Flexible</p>
+                            <p className="text-[10px] text-slate-400">open-ended</p>
                           </>
                         )}
                       </div>
