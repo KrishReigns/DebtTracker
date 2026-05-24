@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { format, addMonths } from 'date-fns'
+import { format, addMonths, differenceInMonths } from 'date-fns'
 import { computeFamilyLoanState, formatCurrency, convertCurrency } from '@/lib/calculations'
 import { LOAN_TYPE_LABELS, LOAN_TYPE_COLORS, CURRENCY_SYMBOLS } from '@/lib/types'
 import { formatDateShort } from '@/lib/utils'
@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Legend } from 'recharts'
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, AreaChart, Area, CartesianGrid } from 'recharts'
 
 interface Props {
   loans: Loan[]
@@ -102,21 +102,70 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
   const donutData = Object.values(typeMap).sort((a, b) => b.value - a.value)
   const donutTotal = donutData.reduce((s, d) => s + d.value, 0)
 
-  // Monthly outflow (next 12 months) — fixed-EMI only, from schedule
-  const monthlyOutflow: { month: string; INR: number; USD: number }[] = []
+  // Monthly outflow (next 12 months) — single viewCurrency, from all schedule rows
+  const monthlyOutflow: { month: string; amount: number }[] = []
   for (let i = 0; i < 12; i++) {
-    const monthStr = format(addMonths(new Date(), i), 'yyyy-MM')
-    let inr = 0, usd = 0
+    const d = addMonths(new Date(), i)
+    const monthStr = format(d, 'yyyy-MM')
+    let total = 0
     for (const sched of schedules) {
       if (sched.contractual_due_date.startsWith(monthStr) && sched.status !== 'paid') {
         const loan = loans.find(l => l.id === sched.loan_id)
-        if (!loan) continue
-        if (loan.currency === 'INR') inr += sched.emi_amount
-        else usd += sched.emi_amount
+        if (loan) total += toView(sched.emi_amount, loan.currency)
       }
     }
-    monthlyOutflow.push({ month: monthStr.slice(5), INR: Math.round(inr), USD: Math.round(usd) })
+    monthlyOutflow.push({ month: format(d, 'MMM'), amount: Math.round(total) })
   }
+
+  // Projected debt trajectory (month-by-month total outstanding across all loans)
+  const now = new Date()
+  const pendingRows = schedules.filter(s => s.status === 'pending' || s.status === 'partial')
+  const lastPending = pendingRows.map(s => s.contractual_due_date).sort().at(-1)
+  const horizonMonths = lastPending
+    ? Math.min(60, Math.max(12, differenceInMonths(new Date(lastPending), now) + 2))
+    : 12
+
+  const debtTrajectory: { month: string; amount: number }[] = []
+  for (let i = 0; i <= horizonMonths; i++) {
+    const d = addMonths(now, i)
+    const monthStr = format(d, 'yyyy-MM')
+    let total = 0
+    for (const loan of loans) {
+      const ls = loanStats.find(s => s.loan.id === loan.id)
+      if (!ls) continue
+      if (loan.repayment_mode === 'flexible_manual') {
+        // Family loans: use current outstanding (no schedule, assume static for projection)
+        total += toView(ls.outstandingPrincipal + ls.accruedInterest, loan.currency)
+      } else {
+        // Fixed-EMI / CC: find opening_balance of earliest pending row due >= this month
+        const upcoming = pendingRows
+          .filter(s => s.loan_id === loan.id && s.contractual_due_date >= `${monthStr}-01`)
+          .sort((a, b) => a.installment_number - b.installment_number)
+        total += toView(upcoming[0]?.opening_balance ?? 0, loan.currency)
+      }
+    }
+    debtTrajectory.push({ month: format(d, 'MMM yy'), amount: Math.round(total) })
+  }
+
+  // Per-loan payoff dates
+  const loanPayoffs = loans.map(loan => {
+    const loanPending = pendingRows
+      .filter(s => s.loan_id === loan.id)
+      .sort((a, b) => a.installment_number - b.installment_number)
+    const lastRow = loanPending.at(-1)
+    const ls = loanStats.find(s => s.loan.id === loan.id)
+    return {
+      loan,
+      payoffDate: loan.repayment_mode === 'flexible_manual' ? null : (lastRow?.contractual_due_date ?? null),
+      monthsLeft: lastRow ? Math.max(0, differenceInMonths(new Date(lastRow.contractual_due_date), now)) : null,
+      outstanding: ls ? toView(ls.outstandingPrincipal + ls.accruedInterest, loan.currency) : 0,
+    }
+  }).sort((a, b) => {
+    if (!a.payoffDate && !b.payoffDate) return 0
+    if (!a.payoffDate) return 1
+    if (!b.payoffDate) return -1
+    return a.payoffDate.localeCompare(b.payoffDate)
+  })
 
   // Upcoming (due in next 30 days) + overdue — includes CC loans with due dates
   const in30 = new Date(new Date(today).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -280,29 +329,40 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
             {/* Donut — grouped by loan type */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm">Debt by Category</CardTitle>
+                <div className="flex items-start justify-between">
+                  <CardTitle className="text-sm">Debt by Category</CardTitle>
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-slate-800">{sym}{donutTotal.toLocaleString()}</p>
+                    <p className="text-[10px] text-slate-400">total outstanding</p>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={200}>
+              <CardContent className="pt-0">
+                <ResponsiveContainer width="100%" height={180}>
                   <PieChart>
-                    <Pie data={donutData} dataKey="value" innerRadius={55} outerRadius={85} paddingAngle={3}>
+                    <Pie data={donutData} dataKey="value" innerRadius={50} outerRadius={78} paddingAngle={3} startAngle={90} endAngle={-270}>
                       {donutData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                     </Pie>
                     <Tooltip
-                      formatter={(v) => `${sym}${Number(v).toLocaleString()}`}
-                      contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                      formatter={(v) => [`${sym}${Number(v).toLocaleString()}`, 'Outstanding']}
+                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
                     />
                   </PieChart>
                 </ResponsiveContainer>
-                <div className="space-y-1.5 mt-1">
+                {/* Legend with % of total */}
+                <p className="text-[10px] text-slate-400 mb-1.5">% share of total debt</p>
+                <div className="space-y-1.5">
                   {donutData.map((d, i) => {
                     const pct = donutTotal > 0 ? Math.round((d.value / donutTotal) * 100) : 0
                     return (
                       <div key={i} className="flex items-center gap-2 text-xs">
                         <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
-                        <span className="text-gray-600 flex-1">{d.label}{d.count > 1 ? ` (${d.count})` : ''}</span>
-                        <span className="text-gray-400">{pct}%</span>
-                        <span className="font-semibold text-gray-700 w-24 text-right">{sym}{d.value.toLocaleString()}</span>
+                        <span className="text-gray-600 flex-1 truncate">{d.label}{d.count > 1 ? ` ×${d.count}` : ''}</span>
+                        <div className="w-20 bg-slate-100 rounded-full h-1.5 shrink-0">
+                          <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: d.color }} />
+                        </div>
+                        <span className="text-slate-400 w-7 text-right">{pct}%</span>
+                        <span className="font-semibold text-slate-700 w-20 text-right">{sym}{(d.value/1000).toFixed(0)}K</span>
                       </div>
                     )
                   })}
@@ -310,20 +370,105 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               </CardContent>
             </Card>
 
-            {/* Monthly outflow */}
+            {/* Monthly outflow — single currency, respects INR/USD toggle */}
             <Card>
-              <CardHeader><CardTitle className="text-sm">Monthly Outflow (next 12 months)</CardTitle></CardHeader>
-              <CardContent>
+              <CardHeader>
+                <CardTitle className="text-sm">Monthly Commitments · next 12 months</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
                 <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={monthlyOutflow} barSize={12}>
-                    <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtAxis} />
-                    <Tooltip formatter={(v) => `${Number(v).toLocaleString()}`} />
-                    <Legend />
-                    <Bar dataKey="INR" fill="#6366f1" name="₹ INR" radius={[3,3,0,0]} />
-                    <Bar dataKey="USD" fill="#10b981" name="$ USD" radius={[3,3,0,0]} />
+                  <BarChart data={monthlyOutflow} barSize={18} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={fmtAxis} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      formatter={(v) => [`${sym}${Number(v).toLocaleString()}`, 'Due']}
+                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                      cursor={{ fill: '#f8fafc' }}
+                    />
+                    <Bar dataKey="amount" fill="#6366f1" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Projected Payoff */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Debt trajectory chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Debt Trajectory</CardTitle>
+                <p className="text-xs text-slate-400 -mt-1">Projected total outstanding over time</p>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={debtTrajectory} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="debtGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15} />
+                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis dataKey="month" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false}
+                      interval={Math.floor(debtTrajectory.length / 6)} />
+                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={fmtAxis} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      formatter={(v) => [`${sym}${Number(v).toLocaleString()}`, 'Outstanding']}
+                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                    />
+                    <Area type="monotone" dataKey="amount" stroke="#6366f1" strokeWidth={2}
+                      fill="url(#debtGrad)" dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Per-loan payoff timeline */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Payoff Timeline</CardTitle>
+                <p className="text-xs text-slate-400 -mt-1">When each loan clears</p>
+              </CardHeader>
+              <CardContent className="pt-0 space-y-2">
+                {loanPayoffs.map(({ loan, payoffDate, monthsLeft, outstanding }) => {
+                  const pct = debtTrajectory[0]?.amount > 0
+                    ? Math.round((outstanding / debtTrajectory[0].amount) * 100) : 0
+                  const color = LOAN_TYPE_COLORS[loan.loan_type] ?? '#6366f1'
+                  return (
+                    <Link key={loan.id} href={`/loans/${loan.id}`}
+                      className="flex items-center gap-3 group rounded-lg px-2 py-1.5 hover:bg-slate-50 transition-colors">
+                      <div className="w-1.5 h-8 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-slate-700 truncate group-hover:text-indigo-600">
+                          {loan.lender_name}
+                        </p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <div className="flex-1 bg-slate-100 rounded-full h-1">
+                            <div className="h-1 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
+                          </div>
+                          <span className="text-[10px] text-slate-400">{pct}%</span>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        {payoffDate ? (
+                          <>
+                            <p className="text-xs font-semibold text-slate-700">
+                              {new Date(payoffDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                            </p>
+                            <p className="text-[10px] text-slate-400">{monthsLeft}mo left</p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-xs font-semibold text-amber-600">Open-ended</p>
+                            <p className="text-[10px] text-slate-400">flexible</p>
+                          </>
+                        )}
+                      </div>
+                    </Link>
+                  )
+                })}
               </CardContent>
             </Card>
           </div>
