@@ -87,12 +87,28 @@ export default function StatementImportTab() {
     pendingFile.current = file
     setStep('checking')
     setError(null)
+
+    // Step 1: Try pdfjs just to detect password protection.
+    // On mobile (iOS Safari) pdfjs may fail for unrelated reasons — if so, we
+    // still fall through and let Claude read the PDF natively via the API.
+    let isPasswordProtected = false
     try {
       await extractPdfText(await file.arrayBuffer())
-      await sendToApi(file, null)
     } catch (err: unknown) {
-      if ((err as { name?: string })?.name === 'PasswordException') { setStep('password') }
-      else { setError(err instanceof Error ? err.message : 'Unknown error'); setStep('error') }
+      if ((err as { name?: string })?.name === 'PasswordException') {
+        isPasswordProtected = true
+      }
+      // Any other pdfjs error (e.g. mobile worker crash): ignore, fall through to API
+    }
+
+    if (isPasswordProtected) { setStep('password'); return }
+
+    // Step 2: Send PDF to API — Claude reads it natively (no pdfjs needed)
+    try {
+      await sendToApi(file, null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+      setStep('error')
     }
   }
 
@@ -182,12 +198,29 @@ export default function StatementImportTab() {
     }
   }
 
-  /** Create a new credit card loan from the parsed statement, then import into it */
+  /** Create a new credit card loan from the parsed statement, then import into it.
+   *  If a card with the same name + currency already exists, import into that instead. */
   async function handleCreateAndImport() {
     if (!statement) return
     setStep('importing')
     try {
       const supabase = createClient()
+
+      // Guard: if a card with this exact bank name + currency already exists, reuse it
+      const alreadyExists = cards.find(
+        c => c.lender_name.toLowerCase() === statement.bank.toLowerCase()
+          && c.currency === statement.currency
+      )
+      if (alreadyExists) {
+        const dup = await checkDuplicate(alreadyExists)
+        if (dup) { setExisting(dup); setSelectedCardId(alreadyExists.id); setStep('duplicate'); return }
+        await runImport(alreadyExists)
+        setSelectedCardId(alreadyExists.id)
+        setStep('done')
+        return
+      }
+
+      // Create the new credit card loan
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not authenticated')
 
