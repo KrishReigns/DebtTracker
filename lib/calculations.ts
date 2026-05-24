@@ -203,7 +203,7 @@ export function generateSchedule(
     case 'simple':
       return generateSimpleInterestSchedule(principal, annualRate / 12, tenureMonths || 12, scheduleStart)
     case 'bullet':
-      return generateBulletSchedule(principal, annualRate, tenureMonths || 12, startDate) // bullet uses start+tenure
+      return generateBulletSchedule(principal, annualRate, tenureMonths || 12, scheduleStart) // use scheduleStart to honour firstEmiDate
     default:
       return generateAmortizationSchedule(principal, annualRate, tenureMonths, scheduleStart, emiOverride)
   }

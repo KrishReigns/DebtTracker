@@ -19,8 +19,9 @@ export default function DeleteLoanButton({ loanId, loanName }: Props) {
     setError(null)
     try {
       const supabase = createClient()
-      // Delete all child records first, then the loan
+      // Delete all child records first (both tables used by different loan types), then the loan
       await supabase.from('payment_transactions').delete().eq('loan_id', loanId)
+      await supabase.from('payments').delete().eq('loan_id', loanId)
       await supabase.from('payment_schedules').delete().eq('loan_id', loanId)
       await supabase.from('payment_plan_rows').delete().eq('loan_id', loanId)
       const { error: err } = await supabase.from('loans').delete().eq('id', loanId)

@@ -127,11 +127,13 @@ export default function StatementImportTab() {
 
   async function checkDuplicate(card: Loan): Promise<ExistingStatement | null> {
     if (!statement?.statementDate) return null
-    const month = statement.statementDate.slice(0, 7)
+    const month = statement.statementDate.slice(0, 7)          // e.g. "2026-02"
+    const [y, m] = month.split('-').map(Number)
+    const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
     const { data: dup } = await createClient()
       .from('payment_transactions').select('id, payment_date, amount, note')
       .eq('loan_id', card.id).eq('payment_method', 'statement_import')
-      .gte('payment_date', `${month}-01`).lte('payment_date', `${month}-31`)
+      .gte('payment_date', `${month}-01`).lt('payment_date', `${nextMonth}-01`)
       .maybeSingle()
     return (dup as ExistingStatement | null)
   }

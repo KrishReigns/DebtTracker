@@ -359,7 +359,7 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
                 <p className="text-xs text-slate-500">Interest Paid So Far</p>
                 <p className="text-base font-bold text-red-500 mt-0.5">
                   {formatCurrency(
-                    scheduleRows.filter(r => r.status === 'paid').reduce((s, r) => s + r.interest_amount, 0),
+                    scheduleRows.filter(r => r.status === 'paid' || r.status === 'partial').reduce((s, r) => s + r.interest_amount, 0),
                     loan.currency
                   )}
                 </p>
@@ -369,7 +369,7 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
                 <p className="text-xs text-slate-500">Interest Remaining</p>
                 <p className="text-base font-bold text-orange-500 mt-0.5">
                   {formatCurrency(
-                    scheduleRows.filter(r => r.status !== 'paid').reduce((s, r) => s + r.interest_amount, 0),
+                    scheduleRows.filter(r => r.status !== 'paid' && r.status !== 'partial').reduce((s, r) => s + r.interest_amount, 0),
                     loan.currency
                   )}
                 </p>
