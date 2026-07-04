@@ -338,11 +338,12 @@ export function buildFlexiblePlanner(
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function formatCurrency(amount: number, currency: 'INR' | 'USD'): string {
+export function formatCurrency(amount: number, currency: 'INR' | 'USD', exact = false): string {
+  // exact: keep cents/paise — use wherever the user compares against an amount they must type in
   return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', {
     style: 'currency',
     currency,
-    maximumFractionDigits: 0,
+    maximumFractionDigits: exact && amount % 1 !== 0 ? 2 : 0,
   }).format(amount)
 }
 

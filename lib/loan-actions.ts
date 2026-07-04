@@ -77,8 +77,9 @@ export async function syncLoanStatus(loanId: string, supabase: SupabaseClient) {
 // ---------------------------------------------------------------------------
 
 /**
- * Mark a schedule row as paid. If amount >= emi_amount → 'paid', else 'partial'.
- * Creates a payment_transaction and syncs legacy payments + loan status.
+ * Mark a schedule row as paid. Within 1 currency unit of emi_amount → 'paid'
+ * (UI shows amounts rounded to whole units, so paying the rounded figure is full),
+ * otherwise 'partial'. Creates a payment_transaction and syncs legacy payments + loan status.
  */
 export async function markScheduleRowPaid(
   loanId: string,
@@ -93,7 +94,7 @@ export async function markScheduleRowPaid(
   paymentMethod: string | null,
   supabase: SupabaseClient
 ) {
-  const isFullPayment = paidAmount >= emiAmount
+  const isFullPayment = paidAmount > emiAmount - 1
   const newStatus: ScheduleStatus = isFullPayment ? 'paid' : 'partial'
 
   // Upsert: remove any existing transaction for this schedule row first

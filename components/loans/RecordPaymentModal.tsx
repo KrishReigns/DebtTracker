@@ -72,7 +72,9 @@ export default function RecordPaymentModal({ loan, open, onClose, scheduleRow, t
 
   const preview = getPreview()
   const enteredAmount = parseFloat(form.amount) || 0
-  const isPartial = scheduleRow && enteredAmount > 0 && enteredAmount < scheduleRow.emi_amount
+  // Partial only if short of the REMAINING due by 1+ currency unit — amounts are
+  // displayed rounded to whole units, so paying the rounded figure counts as full.
+  const isPartial = scheduleRow && enteredAmount > 0 && remainingDue - enteredAmount >= 1
 
   function set(field: string, value: string) {
     setForm(f => ({ ...f, [field]: value }))
@@ -107,7 +109,8 @@ export default function RecordPaymentModal({ loan, open, onClose, scheduleRow, t
       await syncLoanStatus(loan.id, supabase)
 
     } else if (scheduleRow) {
-      // Fixed-EMI: use shared action which handles partial correctly
+      // Fixed-EMI: the action replaces any prior transaction for this row, so
+      // pass the cumulative total (earlier partials + this payment) to keep it.
       await markScheduleRowPaid(
         loan.id,
         scheduleRow.id,
@@ -115,7 +118,7 @@ export default function RecordPaymentModal({ loan, open, onClose, scheduleRow, t
         scheduleRow.emi_amount,
         scheduleRow.principal_amount,
         scheduleRow.interest_amount,
-        amount,
+        alreadyPaid + amount,
         form.payment_date,
         form.note || null,
         form.payment_method || null,
@@ -153,9 +156,9 @@ export default function RecordPaymentModal({ loan, open, onClose, scheduleRow, t
               <p className="text-blue-600">
                 Due: {formatDate(scheduleRow.contractual_due_date)}
               </p>
-              <p className="text-blue-600">Full EMI: {formatCurrency(scheduleRow.emi_amount, loan.currency)}</p>
+              <p className="text-blue-600">Full EMI: {formatCurrency(scheduleRow.emi_amount, loan.currency, true)}</p>
               {alreadyPaid > 0 && (
-                <p className="text-orange-600">Already paid: {formatCurrency(alreadyPaid, loan.currency)} · Remaining: {formatCurrency(remainingDue, loan.currency)}</p>
+                <p className="text-orange-600">Already paid: {formatCurrency(alreadyPaid, loan.currency, true)} · Remaining: {formatCurrency(remainingDue, loan.currency, true)}</p>
               )}
             </div>
           )}
@@ -181,7 +184,7 @@ export default function RecordPaymentModal({ loan, open, onClose, scheduleRow, t
             />
             {isPartial && (
               <p className="text-xs text-orange-600 mt-1">
-                Partial payment — installment will stay open until {formatCurrency(scheduleRow!.emi_amount, loan.currency)} is fully paid.
+                Partial payment — installment will stay open until {formatCurrency(scheduleRow!.emi_amount, loan.currency, true)} is fully paid.
               </p>
             )}
           </div>

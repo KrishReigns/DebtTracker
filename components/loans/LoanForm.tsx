@@ -75,8 +75,10 @@ export default function LoanForm({ loan }: Props) {
   }, [form.loan_type])
 
   useEffect(() => {
+    // Bullet loans have no monthly EMI — single lump-sum lives in the schedule
+    if (form.interest_type === 'bullet') { setAutoEMI(0); return }
     if (principal > 0 && tenure > 0 && !isFlexible) setAutoEMI(calculateEMI(principal, rate, tenure))
-  }, [principal, rate, tenure, isFlexible])
+  }, [principal, rate, tenure, isFlexible, form.interest_type])
 
   function set(field: string, value: string) {
     setForm(f => ({ ...f, [field]: value }))
@@ -110,7 +112,7 @@ export default function LoanForm({ loan }: Props) {
       disbursement_date: form.disbursement_date || null,
       first_emi_date: form.first_emi_date || null,
       tenure_months: isFlexible ? null : (tenure || null),
-      emi_amount: isFlexible ? null : (effectiveEMI || null),
+      emi_amount: isFlexible || form.interest_type === 'bullet' ? null : (effectiveEMI || null),
       payment_day: isFlexible ? null : (parseInt(form.payment_day) || 1),
       currency: form.currency,
       notes: form.notes || null,
