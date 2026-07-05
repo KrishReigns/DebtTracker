@@ -6,6 +6,18 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Today as YYYY-MM-DD in the user's LOCAL timezone.
+ * Never use `new Date().toISOString().split('T')[0]` — that's UTC "today",
+ * which is yesterday for IST users between midnight and 05:30.
+ */
+export function todayISO(): string {
+  const d = new Date()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
+/**
  * Format an ISO date string (YYYY-MM-DD) consistently across the app.
  * Parses as local date to avoid UTC-midnight off-by-one issues.
  * Output: "1 Mar 2027"

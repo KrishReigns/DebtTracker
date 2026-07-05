@@ -4,7 +4,10 @@ import { Resend } from 'resend'
 
 // Vercel Cron calls this endpoint daily with Authorization: Bearer <CRON_SECRET>
 export async function GET(request: NextRequest) {
-  // ── Auth guard ────────────────────────────────────────────────────────────
+  // ── Auth guard — fail closed if the secret is unset ("Bearer undefined" was accepted) ──
+  if (!process.env.CRON_SECRET) {
+    return NextResponse.json({ error: 'CRON_SECRET not configured' }, { status: 500 })
+  }
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase-server'
 import Sidebar from '@/components/Sidebar'
+import { todayISO } from '@/lib/utils'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -19,7 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const avatarUrl: string | null = meta.avatar_url ?? null
 
   // Count overdue payments for badge
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
   const { count: overdueCount } = await supabase
     .from('payment_schedules')
     .select('id', { count: 'exact', head: true })

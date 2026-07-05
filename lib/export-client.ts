@@ -19,6 +19,7 @@ export type { LoansExportRow } from './export'
 import type { PaymentPlanRow, PaymentTransaction, Loan, FamilyLoanState } from './types'
 import type { FlexibleExportRow } from './export'
 import { buildFlexiblePlanner } from './calculations'
+import { todayISO } from './utils'
 
 /**
  * Build planner export rows from DB plan rows + transactions.
@@ -29,7 +30,7 @@ export function buildFlexibleExportRows(
   loan: Loan,
   state: FamilyLoanState
 ): FlexibleExportRow[] {
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
   const sortedTx = [...transactions].sort((a, b) => a.payment_date.localeCompare(b.payment_date))
 
   const plannerRows = buildFlexiblePlanner(

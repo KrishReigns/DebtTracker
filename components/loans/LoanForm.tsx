@@ -13,13 +13,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { formatDate } from '@/lib/utils'
+import { formatDate, todayISO } from '@/lib/utils'
 
 interface Props { loan?: Loan }
 
 const LOAN_TYPE_ICONS: Record<string, string> = {
-  personal_loan: '👤', home: '🏠', vehicle: '🚗', education: '🎓',
-  business: '💼', gold: '🪙', credit_card: '💳', family: '🤝', other: '📋',
+  personal_loan: '👤', home_loan: '🏠', car_loan: '🚗', student_loan: '🎓',
+  gold_loan: '🪙', credit_card: '💳', family: '🤝',
 }
 
 const INTEREST_TYPE_OPTIONS: { value: InterestType; label: string; desc: string }[] = [
@@ -48,7 +48,7 @@ export default function LoanForm({ loan }: Props) {
     principal:        loan?.principal?.toString() ?? '',
     interest_rate:    loan?.interest_rate?.toString() ?? '',
     interest_type:    (loan?.interest_type ?? 'reducing') as InterestType,
-    start_date:       loan?.start_date ?? new Date().toISOString().split('T')[0],
+    start_date:       loan?.start_date ?? todayISO(),
     disbursement_date:loan?.disbursement_date ?? '',
     first_emi_date:   loan?.first_emi_date ?? '',
     tenure_months:    loan?.tenure_months?.toString() ?? '12',
@@ -123,8 +123,11 @@ export default function LoanForm({ loan }: Props) {
       const { error: err } = await supabase.from('loans').update(payload).eq('id', loan!.id)
       if (err) { setError(err.message); setLoading(false); return }
 
-      // Regenerate pending schedule rows from updated loan terms
-      if (!isFlexible && principal > 0) {
+      // Regenerate pending schedule rows from updated loan terms.
+      // Never for revolving cards: their rows are per-statement (created by the
+      // import flow, tenure is meaningless) — regen would delete the pending
+      // statement row and generate nothing back.
+      if (!isFlexible && principal > 0 && form.interest_type !== 'revolving') {
         // Fetch paid/partial/skipped rows (keep as historical record)
         const { data: paidRows } = await supabase
           .from('payment_schedules')
@@ -137,18 +140,24 @@ export default function LoanForm({ loan }: Props) {
         const paidCount = paid.length
         const lastPaid = paid[paid.length - 1]
 
-        // Delete all pending rows
+        // Starting balance = closing balance of last paid row, or full principal
+        const startBalance = lastPaid ? Number(lastPaid.closing_balance) : principal
+        const remainingTenure = tenure - paidCount
+
+        if (remainingTenure <= 0) {
+          setError(`Tenure (${tenure}) can't be less than installments already settled (${paidCount}).`)
+          setLoading(false)
+          return
+        }
+
+        // Delete pending rows only once we know we can regenerate replacements
         await supabase
           .from('payment_schedules')
           .delete()
           .eq('loan_id', loan!.id)
           .eq('status', 'pending')
 
-        // Starting balance = closing balance of last paid row, or full principal
-        const startBalance = lastPaid ? Number(lastPaid.closing_balance) : principal
-        const remainingTenure = tenure - paidCount
-
-        if (remainingTenure > 0 && startBalance > 0) {
+        if (startBalance > 0) {
           // Start date: if paid rows exist, derive next due date from last paid date + 1 month
           // adjusted to the new payment_day; otherwise use form.start_date
           let schedStartDate = form.start_date

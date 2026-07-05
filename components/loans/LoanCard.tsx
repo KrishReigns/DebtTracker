@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { formatCurrency } from '@/lib/calculations'
 import { LOAN_TYPE_LABELS, LOAN_TYPE_COLORS, type Loan } from '@/lib/types'
-import { formatDate, STATUS_COLORS, NUM_COLORS } from '@/lib/utils'
+import { formatDate, STATUS_COLORS, NUM_COLORS, todayISO } from '@/lib/utils'
 
 export interface LoanCardSummary {
   paidCount: number
@@ -40,7 +40,7 @@ export default function LoanCard({ loan, summary }: Props) {
   const accentColor = LOAN_TYPE_COLORS[loan.loan_type] ?? '#6366f1'
   const bgGradient = LOAN_TYPE_BG[loan.loan_type] ?? 'from-slate-50 to-slate-100/40'
   const takenDate = loan.disbursement_date ?? loan.start_date
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
   const isOverdue = !isCls && !!nextDueDate && nextDueDate < today
 
   const statusKey = loan.status === 'closed' ? 'closed'
@@ -153,7 +153,15 @@ export default function LoanCard({ loan, summary }: Props) {
             )}
 
             {/* Row 4: Highlighted summary box */}
-            {isCls ? (
+            {loan.status === 'paused' ? (
+              // Paused is NOT settled — show its own state
+              <div className="flex justify-between items-center bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                <span className="text-xs font-medium text-amber-700">Paused</span>
+                <svg className="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            ) : isCls ? (
               // Closed: Settled & Closed
               <div className="flex justify-between items-center bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1.5">
                 <span className="text-xs font-medium text-emerald-700">Settled &amp; Closed</span>

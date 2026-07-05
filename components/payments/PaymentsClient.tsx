@@ -7,7 +7,7 @@ import { markScheduleRowUnpaid } from '@/lib/loan-actions'
 import { computeFamilyLoanState, formatCurrency } from '@/lib/calculations'
 import { LOAN_TYPE_LABELS } from '@/lib/types'
 import type { Loan, PaymentSchedule, PaymentTransaction } from '@/lib/types'
-import { formatDate, STATUS_COLORS, NUM_COLORS } from '@/lib/utils'
+import { formatDate, STATUS_COLORS, NUM_COLORS, todayISO } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -28,7 +28,7 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
   const [actionId, setActionId] = useState<string | null>(null)
   const [recordModal, setRecordModal] = useState<{ open: boolean; scheduleRow?: PaymentSchedule; loan?: Loan }>({ open: false })
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
   const loanMap = Object.fromEntries(loans.map(l => [l.id, l]))
 
   const activeLoans = loans.filter(l => l.status === 'active')
@@ -90,10 +90,13 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
   // ── Actions ───────────────────────────────────────────────────────────────
   async function handleMarkUnpaid(s: PaymentSchedule) {
     setActionId(s.id)
-    const supabase = createClient()
-    await markScheduleRowUnpaid(s.loan_id, s.id, s.contractual_due_date, supabase)
-    router.refresh()
-    setActionId(null)
+    try {
+      const supabase = createClient()
+      await markScheduleRowUnpaid(s.loan_id, s.id, s.contractual_due_date, supabase)
+      router.refresh()
+    } finally {
+      setActionId(null)
+    }
   }
 
   const filterLabels: Record<Filter, string> = {

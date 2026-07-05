@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/calculations'
 import type { Currency, Loan } from '@/lib/types'
 import type { ParsedStatement } from '@/app/api/credit-card/parse-statement/route'
+import { todayISO } from '@/lib/utils'
 
 function cur(c: string): Currency { return c as Currency }
 
@@ -130,12 +131,14 @@ export default function StatementImportTab() {
     const month = statement.statementDate.slice(0, 7)          // e.g. "2026-02"
     const [y, m] = month.split('-').map(Number)
     const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
-    const { data: dup } = await createClient()
+    // limit(1), not maybeSingle(): if a month ever ends up with 2 statement rows,
+    // maybeSingle() errors and dedupe goes permanently silent for that card
+    const { data: dups } = await createClient()
       .from('payment_transactions').select('id, payment_date, amount, note')
       .eq('loan_id', card.id).eq('payment_method', 'statement_import')
       .gte('payment_date', `${month}-01`).lt('payment_date', `${nextMonth}-01`)
-      .maybeSingle()
-    return (dup as ExistingStatement | null)
+      .order('payment_date', { ascending: false }).limit(1)
+    return (dups?.[0] as ExistingStatement | undefined) ?? null
   }
 
   async function proceedToPreview() {
@@ -145,47 +148,69 @@ export default function StatementImportTab() {
     setStep('preview')
   }
 
-  /** Core import logic — operates on any card (existing or just-created) */
+  /** YYYY-MM-DD for `days` from now, in local time (toISOString would drift a day near midnight) */
+  function daysFromNowISO(days: number): string {
+    const d = new Date(Date.now() + days * 86400000)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+
+  /** Core import logic — operates on any card (existing or just-created).
+   *  Every write is error-checked: supabase-js doesn't throw, and a silent
+   *  failure here reports "imported" with half the records missing. */
   async function runImport(card: Loan, replaceExistingId?: string) {
     if (!statement) return
     const supabase = createClient()
     const paymentTotal = statement.transactions
       .filter(tx => tx.type === 'payment' || tx.type === 'credit' || tx.amount > 0)
       .reduce((sum, tx) => sum + Math.abs(tx.amount), 0)
+    // Parse YYYY-MM locally — new Date('YYYY-MM-DD') is UTC and labels
+    // 1st-of-month statements with the previous month in US timezones
     const period = statement.statementDate
-      ? new Date(statement.statementDate).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      ? (() => {
+          const [py, pm] = statement.statementDate.split('-').map(Number)
+          return new Date(py, pm - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+        })()
       : 'Unknown period'
 
     if (replaceExistingId) {
-      await supabase.from('payment_transactions').delete().eq('id', replaceExistingId)
+      const { error: delErr } = await supabase.from('payment_transactions').delete().eq('id', replaceExistingId)
+      if (delErr) throw new Error(`Could not remove old statement: ${delErr.message}`)
     }
 
-    await supabase.from('payment_transactions').insert({
+    const { error: txErr } = await supabase.from('payment_transactions').insert({
       loan_id: card.id,
-      payment_date: statement.statementDate ?? new Date().toISOString().split('T')[0],
+      payment_date: statement.statementDate ?? todayISO(),
       amount: paymentTotal,
       note: `Statement ${period}${statement.newBalance != null ? ` · Balance: ${formatCurrency(statement.newBalance, cur(statement.currency))}` : ''}${statement.dueDate ? ` · Due: ${statement.dueDate}` : ''}`,
       payment_method: 'statement_import',
       principal_applied: null, interest_applied: null, schedule_row_id: null,
     })
+    if (txErr) throw new Error(`Statement record failed to save: ${txErr.message}`)
 
     if (statement.newBalance != null) {
-      await supabase.from('loans').update({ principal: statement.newBalance }).eq('id', card.id)
-      const dueDate = statement.dueDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-      const { data: schedRows } = await supabase
+      const { error: prErr } = await supabase.from('loans').update({ principal: statement.newBalance }).eq('id', card.id)
+      if (prErr) throw new Error(`Balance update failed: ${prErr.message}`)
+      const dueDate = statement.dueDate ?? daysFromNowISO(30)
+      const { data: schedRows, error: schedReadErr } = await supabase
         .from('payment_schedules').select('id, status').eq('loan_id', card.id).order('installment_number')
-      if (schedRows && schedRows.length > 0) {
-        const pendingIds = schedRows.filter(r => r.status === 'pending').map(r => r.id)
-        if (pendingIds.length > 0) await supabase.from('payment_schedules').delete().in('id', pendingIds)
-        await supabase.from('payment_schedules').insert({
-          loan_id: card.id,
-          installment_number: (schedRows.length - pendingIds.length) + 1,
-          contractual_due_date: dueDate, planned_pay_date: dueDate,
-          opening_balance: statement.newBalance, emi_amount: statement.newBalance,
-          principal_amount: statement.newBalance, interest_amount: 0, closing_balance: 0,
-          amount_paid: null, rate: card.interest_rate, status: 'pending',
-        })
+      if (schedReadErr) throw new Error(`Could not read schedule: ${schedReadErr.message}`)
+      const rows = schedRows ?? []
+      const pendingIds = rows.filter(r => r.status === 'pending').map(r => r.id)
+      if (pendingIds.length > 0) {
+        const { error: delSchedErr } = await supabase.from('payment_schedules').delete().in('id', pendingIds)
+        if (delSchedErr) throw new Error(`Could not replace due-date row: ${delSchedErr.message}`)
       }
+      // Always create the new statement's due row — even for a card that has
+      // no schedule rows yet (e.g. manually created card)
+      const { error: insSchedErr } = await supabase.from('payment_schedules').insert({
+        loan_id: card.id,
+        installment_number: (rows.length - pendingIds.length) + 1,
+        contractual_due_date: dueDate, planned_pay_date: dueDate,
+        opening_balance: statement.newBalance, emi_amount: statement.newBalance,
+        principal_amount: statement.newBalance, interest_amount: 0, closing_balance: 0,
+        amount_paid: null, rate: card.interest_rate, status: 'pending',
+      })
+      if (insSchedErr) throw new Error(`Due-date row failed to save: ${insSchedErr.message}`)
     }
   }
 
@@ -226,7 +251,7 @@ export default function StatementImportTab() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not authenticated')
 
-      const today = new Date().toISOString().split('T')[0]
+      const today = todayISO()
       const { data: newLoan, error: loanErr } = await supabase.from('loans').insert({
         user_id: user.id,
         lender_name: statement.bank,
@@ -243,18 +268,21 @@ export default function StatementImportTab() {
 
       if (loanErr || !newLoan) throw new Error(loanErr?.message ?? 'Failed to create card')
 
-      // Create an initial schedule row so the detail page renders correctly
-      const dueDate = statement.dueDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-      await supabase.from('payment_schedules').insert({
-        loan_id: newLoan.id,
-        installment_number: 1,
-        contractual_due_date: dueDate, planned_pay_date: dueDate,
-        opening_balance: statement.newBalance ?? 0, emi_amount: statement.newBalance ?? 0,
-        principal_amount: statement.newBalance ?? 0, interest_amount: 0, closing_balance: 0,
-        amount_paid: null, rate: 0, status: 'pending',
-      })
-
+      // runImport creates the statement's due-date schedule row itself;
+      // only a balance-less statement needs a placeholder row here
       await runImport(newLoan as Loan)
+      if (statement.newBalance == null) {
+        const dueDate = statement.dueDate ?? daysFromNowISO(30)
+        const { error: schedErr } = await supabase.from('payment_schedules').insert({
+          loan_id: newLoan.id,
+          installment_number: 1,
+          contractual_due_date: dueDate, planned_pay_date: dueDate,
+          opening_balance: 0, emi_amount: 0,
+          principal_amount: 0, interest_amount: 0, closing_balance: 0,
+          amount_paid: null, rate: 0, status: 'pending',
+        })
+        if (schedErr) throw new Error(`Schedule row failed to save: ${schedErr.message}`)
+      }
       setSelectedCardId(newLoan.id)
       setCards(prev => [...prev, newLoan as Loan])
       setStep('done')
@@ -424,9 +452,9 @@ export default function StatementImportTab() {
               className="w-full px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors">
               Replace — same card, updated statement
             </button>
-            <button onClick={() => { setStep('preview') }}
+            <button onClick={() => { setExisting(null); setStep('confirm-card') }}
               className="w-full px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
-              Import anyway — this is a different card
+              This is a different card — pick the right one
             </button>
             <button onClick={reset} className="text-xs text-slate-400 hover:text-slate-600 text-center">
               Cancel

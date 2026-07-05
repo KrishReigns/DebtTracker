@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { format, addMonths, differenceInMonths } from 'date-fns'
 import { computeFamilyLoanState, formatCurrency, convertCurrency } from '@/lib/calculations'
 import { LOAN_TYPE_LABELS, LOAN_TYPE_COLORS, CURRENCY_SYMBOLS } from '@/lib/types'
-import { formatDateShort } from '@/lib/utils'
+import { formatDateShort, todayISO } from '@/lib/utils'
 import type { Loan, PaymentSchedule, PaymentTransaction, ExchangeRate } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -32,7 +32,7 @@ interface LoanStats {
 export default function DashboardClient({ loans, schedules, transactions, exchangeRates }: Props) {
   const [viewCurrency, setViewCurrency] = useState<'INR' | 'USD'>('INR')
   const [extraMonthly, setExtraMonthly] = useState(0)
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
 
   function getRate(from: 'INR' | 'USD', to: 'INR' | 'USD'): number {
     if (from === to) return 1
@@ -217,8 +217,11 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
 
   const sym = CURRENCY_SYMBOLS[viewCurrency]
 
-  // Overall repayment progress — actual cash paid (payment_transactions = source of truth for real amounts)
+  // Overall repayment progress — actual cash paid (payment_transactions = source of truth for real amounts).
+  // Skip statement_import aggregates: they summarize payments already counted when
+  // the statement row was marked paid, so including them double-counts CC payments.
   const totalRepaid = transactions.reduce((s, t) => {
+    if (t.payment_method === 'statement_import') return s
     const loan = loans.find(l => l.id === t.loan_id)
     return s + (loan ? toView(t.amount, loan.currency) : 0)
   }, 0)

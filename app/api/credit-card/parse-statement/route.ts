@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import type { DocumentBlockParam, TextBlockParam } from '@anthropic-ai/sdk/resources/messages/messages'
+import { createClient } from '@/lib/supabase-server'
 
 export interface ParsedStatementTransaction {
   date: string        // YYYY-MM-DD
@@ -21,6 +22,13 @@ export interface ParsedStatement {
 
 export async function POST(req: NextRequest) {
   try {
+    // Auth gate — extraction burns paid API credits, signed-in users only
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 })
+    }
+
     const formData = await req.formData()
     const file = formData.get('pdf') as File | null
 
@@ -95,13 +103,27 @@ Rules:
 
     const message = await client.messages.create({
       model: 'claude-haiku-4-5',
-      max_tokens: 2048,
+      max_tokens: 8192, // busy statements have 40+ transactions; 2048 truncated the JSON mid-array
       messages: [{ role: 'user', content: messageContent }],
     })
 
-    const raw = (message.content[0] as { type: string; text: string }).text.trim()
+    const first = message.content[0]
+    if (!first || first.type !== 'text') {
+      return NextResponse.json({ error: 'Could not read this statement — try a clearer PDF.' }, { status: 422 })
+    }
+    const raw = first.text.trim()
     const jsonStr = raw.replace(/^```json?\s*/i, '').replace(/\s*```$/i, '').trim()
     const parsed: ParsedStatement = JSON.parse(jsonStr)
+
+    // Model output is untrusted — normalize before the client writes it to the DB
+    parsed.bank = typeof parsed.bank === 'string' && parsed.bank.trim() ? parsed.bank.trim().slice(0, 80) : 'Unknown Card'
+    parsed.currency = parsed.currency === 'INR' ? 'INR' : 'USD'
+    parsed.transactions = Array.isArray(parsed.transactions) ? parsed.transactions : []
+    parsed.newBalance = typeof parsed.newBalance === 'number' && isFinite(parsed.newBalance) ? parsed.newBalance : null
+    parsed.minimumDue = typeof parsed.minimumDue === 'number' && isFinite(parsed.minimumDue) ? parsed.minimumDue : null
+    const isDate = (s: unknown) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
+    parsed.statementDate = isDate(parsed.statementDate) ? parsed.statementDate : null
+    parsed.dueDate = isDate(parsed.dueDate) ? parsed.dueDate : null
 
     return NextResponse.json({ statement: parsed })
   } catch (err) {

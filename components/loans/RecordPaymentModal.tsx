@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { markScheduleRowPaid, syncLoanStatus, recomputeFlexibleAllocations } from '@/lib/loan-actions'
 import { computeFamilyLoanState, allocatePayment, formatCurrency } from '@/lib/calculations'
-import { formatDate } from '@/lib/utils'
+import { formatDate, todayISO } from '@/lib/utils'
 import type { Loan, PaymentTransaction, PaymentSchedule } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,7 +28,7 @@ const PAYMENT_METHODS = ['Bank Transfer', 'UPI', 'Cash', 'Cheque', 'Online', 'Ot
 
 export default function RecordPaymentModal({ loan, open, onClose, scheduleRow, transactions = [] }: Props) {
   const router = useRouter()
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
   const isFlexible = loan.repayment_mode === 'flexible_manual'
 
   // For partial payments: how much has already been paid toward this schedule row?
@@ -58,6 +58,17 @@ export default function RecordPaymentModal({ loan, open, onClose, scheduleRow, t
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // The modal stays mounted between opens with different schedule rows —
+  // re-derive the form each time it opens or stale amounts/errors leak through.
+  useEffect(() => {
+    if (open) {
+      setForm({ payment_date: todayISO(), amount: getSuggestedAmount(), note: '', payment_method: '' })
+      setError('')
+      setLoading(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, scheduleRow?.id])
 
   // Live allocation preview for flexible loans
   const getPreview = () => {
@@ -89,57 +100,63 @@ export default function RecordPaymentModal({ loan, open, onClose, scheduleRow, t
     setError('')
     const supabase = createClient()
 
-    if (isFlexible) {
-      const sortedTx = [...transactions].sort((a, b) => a.payment_date.localeCompare(b.payment_date))
-      const state = computeFamilyLoanState(loan.principal, loan.interest_rate, loan.start_date, sortedTx, form.payment_date)
-      const { principalApplied, interestApplied } = allocatePayment(state.outstandingPrincipal, state.accruedInterest, amount)
+    try {
+      if (isFlexible) {
+        const sortedTx = [...transactions].sort((a, b) => a.payment_date.localeCompare(b.payment_date))
+        const state = computeFamilyLoanState(loan.principal, loan.interest_rate, loan.start_date, sortedTx, form.payment_date)
+        const { principalApplied, interestApplied } = allocatePayment(state.outstandingPrincipal, state.accruedInterest, amount)
 
-      const { error: err } = await supabase.from('payment_transactions').insert({
-        loan_id: loan.id,
-        schedule_row_id: null,
-        payment_date: form.payment_date,
-        amount,
-        principal_applied: principalApplied,
-        interest_applied: interestApplied,
-        note: form.note || null,
-        payment_method: form.payment_method || null,
-      })
-      if (err) { setError(err.message); setLoading(false); return }
-      await recomputeFlexibleAllocations(loan.id, supabase)
-      await syncLoanStatus(loan.id, supabase)
+        const { error: err } = await supabase.from('payment_transactions').insert({
+          loan_id: loan.id,
+          schedule_row_id: null,
+          payment_date: form.payment_date,
+          amount,
+          principal_applied: principalApplied,
+          interest_applied: interestApplied,
+          note: form.note || null,
+          payment_method: form.payment_method || null,
+        })
+        if (err) throw new Error(err.message)
+        await recomputeFlexibleAllocations(loan.id, supabase)
+        await syncLoanStatus(loan.id, supabase)
 
-    } else if (scheduleRow) {
-      // Fixed-EMI: the action replaces any prior transaction for this row, so
-      // pass the cumulative total (earlier partials + this payment) to keep it.
-      await markScheduleRowPaid(
-        loan.id,
-        scheduleRow.id,
-        scheduleRow.contractual_due_date,
-        scheduleRow.emi_amount,
-        scheduleRow.principal_amount,
-        scheduleRow.interest_amount,
-        alreadyPaid + amount,
-        form.payment_date,
-        form.note || null,
-        form.payment_method || null,
-        supabase
-      )
-    } else {
-      // Fixed-EMI ad-hoc payment (no specific row)
-      const { error: err } = await supabase.from('payment_transactions').insert({
-        loan_id: loan.id,
-        schedule_row_id: null,
-        payment_date: form.payment_date,
-        amount,
-        note: form.note || null,
-        payment_method: form.payment_method || null,
-      })
-      if (err) { setError(err.message); setLoading(false); return }
-      await syncLoanStatus(loan.id, supabase)
+      } else if (scheduleRow) {
+        // Fixed-EMI: the action replaces any prior transaction for this row, so
+        // pass the cumulative total (earlier partials + this payment) to keep it.
+        await markScheduleRowPaid(
+          loan.id,
+          scheduleRow.id,
+          scheduleRow.contractual_due_date,
+          scheduleRow.emi_amount,
+          scheduleRow.principal_amount,
+          scheduleRow.interest_amount,
+          alreadyPaid + amount,
+          form.payment_date,
+          form.note || null,
+          form.payment_method || null,
+          supabase
+        )
+      } else {
+        // Fixed-EMI ad-hoc payment (no specific row)
+        const { error: err } = await supabase.from('payment_transactions').insert({
+          loan_id: loan.id,
+          schedule_row_id: null,
+          payment_date: form.payment_date,
+          amount,
+          note: form.note || null,
+          payment_method: form.payment_method || null,
+        })
+        if (err) throw new Error(err.message)
+        await syncLoanStatus(loan.id, supabase)
+      }
+
+      router.refresh()
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Payment failed — please try again')
+    } finally {
+      setLoading(false)
     }
-
-    router.refresh()
-    onClose()
   }
 
   return (

@@ -5,6 +5,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { computeFamilyLoanState, computeDailyAccruedInterest, allocatePayment } from './calculations'
 import type { RepaymentMode, FamilyLoanState, ScheduleStatus } from './types'
+import { todayISO } from './utils'
 
 // ---------------------------------------------------------------------------
 // Pure status computation (testable without DB)
@@ -17,8 +18,13 @@ import type { RepaymentMode, FamilyLoanState, ScheduleStatus } from './types'
 export function computeNewLoanStatus(
   repaymentMode: RepaymentMode,
   scheduleRows: Array<{ status: ScheduleStatus }>,
-  familyState?: FamilyLoanState
+  familyState?: FamilyLoanState,
+  interestType?: string
 ): 'active' | 'closed' {
+  // Revolving credit cards never auto-close: paying off a statement doesn't end
+  // the card, and a closed card disappears from the import picker (which then
+  // creates duplicate cards). Closing a card is a manual action only.
+  if (interestType === 'revolving') return 'active'
   if (repaymentMode === 'fixed_emi') {
     if (scheduleRows.length === 0) return 'active'
     const allSettled = scheduleRows.every(r => r.status === 'paid' || r.status === 'skipped')
@@ -40,10 +46,14 @@ export function computeNewLoanStatus(
 export async function syncLoanStatus(loanId: string, supabase: SupabaseClient) {
   const { data: loan } = await supabase
     .from('loans')
-    .select('repayment_mode, principal, interest_rate, start_date, status')
+    .select('repayment_mode, principal, interest_rate, start_date, status, interest_type')
     .eq('id', loanId)
     .single()
   if (!loan) return
+
+  // Revolving cards: status is manual-only (see computeNewLoanStatus) — don't
+  // auto-close on all-paid, and don't reopen a card the user closed on purpose.
+  if (loan.interest_type === 'revolving') return
 
   let newStatus: 'active' | 'closed'
 
@@ -52,14 +62,14 @@ export async function syncLoanStatus(loanId: string, supabase: SupabaseClient) {
       .from('payment_schedules')
       .select('status')
       .eq('loan_id', loanId)
-    newStatus = computeNewLoanStatus('fixed_emi', rows ?? [])
+    newStatus = computeNewLoanStatus('fixed_emi', rows ?? [], undefined, loan.interest_type)
   } else {
     const { data: txs } = await supabase
       .from('payment_transactions')
       .select('*')
       .eq('loan_id', loanId)
       .order('payment_date')
-    const today = new Date().toISOString().split('T')[0]
+    const today = todayISO()
     const familyState = computeFamilyLoanState(
       loan.principal, loan.interest_rate, loan.start_date,
       txs ?? [], today
@@ -98,12 +108,13 @@ export async function markScheduleRowPaid(
   const newStatus: ScheduleStatus = isFullPayment ? 'paid' : 'partial'
 
   // Upsert: remove any existing transaction for this schedule row first
-  await supabase
+  const { error: delErr } = await supabase
     .from('payment_transactions')
     .delete()
     .eq('schedule_row_id', scheduleRowId)
+  if (delErr) throw new Error(`Could not update payment record: ${delErr.message}`)
 
-  await supabase.from('payment_transactions').insert({
+  const { error: insErr } = await supabase.from('payment_transactions').insert({
     loan_id: loanId,
     schedule_row_id: scheduleRowId,
     payment_date: paymentDate,
@@ -113,12 +124,14 @@ export async function markScheduleRowPaid(
     note,
     payment_method: paymentMethod,
   })
+  if (insErr) throw new Error(`Payment record failed to save: ${insErr.message}`)
 
   // planned_pay_date tracks the actual date paid (auto-set on payment, reflects reality)
-  await supabase
+  const { error: updErr } = await supabase
     .from('payment_schedules')
     .update({ status: newStatus, amount_paid: paidAmount, planned_pay_date: paymentDate })
     .eq('id', scheduleRowId)
+  if (updErr) throw new Error(`Schedule update failed: ${updErr.message}`)
 
   // Sync legacy payments table
   await supabase

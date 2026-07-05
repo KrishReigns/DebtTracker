@@ -5,7 +5,7 @@ import LoansExportButton from '@/components/loans/LoansExportButton'
 import { buttonVariants } from '@/components/ui/button'
 
 export const dynamic = 'force-dynamic'
-import { cn } from '@/lib/utils'
+import { cn, todayISO } from '@/lib/utils'
 import { computeFamilyLoanState } from '@/lib/calculations'
 import type { Loan, PaymentSchedule, PaymentTransaction } from '@/lib/types'
 import type { LoanCardSummary } from '@/components/loans/LoanCard'
@@ -13,7 +13,7 @@ import type { LoansExportRow } from '@/lib/export'
 
 export default async function LoansPage() {
   const supabase = await createClient()
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
 
   const { data: loansRaw } = await supabase.from('loans').select('*').order('created_at')
   const loans = (loansRaw ?? []) as Loan[]

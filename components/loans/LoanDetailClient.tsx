@@ -10,7 +10,7 @@ import {
 } from '@/lib/calculations'
 import { LOAN_TYPE_COLORS } from '@/lib/types'
 import type { Loan, PaymentSchedule, PaymentTransaction, PaymentPlanRow } from '@/lib/types'
-import { formatDate, formatMonthYear, STATUS_COLORS, NUM_COLORS } from '@/lib/utils'
+import { formatDate, formatMonthYear, STATUS_COLORS, NUM_COLORS, todayISO } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -47,7 +47,7 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
   const [editingDateRowId, setEditingDateRowId] = useState<string | null>(null)
 
   const isFlexible = loan.repayment_mode === 'flexible_manual'
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
   const color = LOAN_TYPE_COLORS[loan.loan_type]
   const sortedTx = [...transactions].sort((a, b) => a.payment_date.localeCompare(b.payment_date))
 
@@ -147,14 +147,37 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
   }
 
   // ── Smart close/reopen ─────────────────────────────────────────────────────
+  const [closeBusy, setCloseBusy] = useState(false)
   async function handleCloseReopen() {
+    if (closeBusy) return
     const supabase = createClient()
 
     if (loan.status !== 'active') {
-      // Reopening is always safe
-      await supabase.from('loans').update({ status: 'active' }).eq('id', loan.id)
-      setCloseConfirm(false)
-      router.refresh()
+      // Reopen: restore rows that were force-skipped at close time (they carry
+      // amount_paid = null and no transaction) so the loan is payable again.
+      setCloseBusy(true)
+      try {
+        if (!isFlexible) {
+          const { data: skipped } = await supabase
+            .from('payment_schedules')
+            .select('id, contractual_due_date, amount_paid')
+            .eq('loan_id', loan.id)
+            .eq('status', 'skipped')
+          for (const row of skipped ?? []) {
+            if (row.amount_paid != null) continue // genuinely skipped-with-payment stays
+            await supabase.from('payment_schedules').update({ status: 'pending' }).eq('id', row.id)
+            await supabase.from('payments')
+              .update({ status: 'pending', paid_date: null })
+              .eq('loan_id', loan.id)
+              .eq('due_date', row.contractual_due_date)
+          }
+        }
+        await supabase.from('loans').update({ status: 'active' }).eq('id', loan.id)
+        setCloseConfirm(false)
+        router.refresh()
+      } finally {
+        setCloseBusy(false)
+      }
       return
     }
 
@@ -170,13 +193,15 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
           setCloseConfirm(true)
           return
         }
-        // Force close: mark remaining rows as skipped
+        // Force close: mark remaining rows as skipped (legacy payments table
+        // mirrors 'skipped' — never falsify them as 'paid')
+        setCloseBusy(true)
         for (const row of unpaid) {
           await supabase.from('payment_schedules')
             .update({ status: 'skipped' })
             .eq('id', row.id)
           await supabase.from('payments')
-            .update({ status: 'paid' })
+            .update({ status: 'skipped' })
             .eq('loan_id', loan.id)
             .eq('due_date', row.contractual_due_date)
         }
@@ -191,9 +216,11 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
       }
     }
 
+    setCloseBusy(true)
     await supabase.from('loans').update({ status: 'closed' }).eq('id', loan.id)
     setCloseConfirm(false)
     setCloseError('')
+    setCloseBusy(false)
     router.refresh()
   }
 
@@ -258,7 +285,7 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
             {loan.tenure_months && (
               <div>
                 <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Tenure</p>
-                <p className="text-sm font-medium text-slate-800">{loan.tenure_months} months</p>
+                <p className="text-sm font-medium text-slate-800">{loan.tenure_months} month{loan.tenure_months !== 1 ? 's' : ''}</p>
               </div>
             )}
             <div className="w-full sm:w-auto sm:ml-auto flex flex-col items-start sm:items-end gap-1">
@@ -376,17 +403,24 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
                 <p className="text-xs text-slate-400">still to be paid</p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Prepay ₹1L → Save</p>
-                <p className="text-base font-bold text-emerald-600 mt-0.5">
-                  {formatCurrency(
-                    Math.round((remainingPrincipalFixedEMI > 100000
-                      ? scheduleRows.filter(r => r.status !== 'paid').reduce((s, r) => s + r.interest_amount, 0) *
-                        (100000 / remainingPrincipalFixedEMI)
-                      : 0)),
-                    loan.currency
-                  )}
-                </p>
-                <p className="text-xs text-slate-400">approx. interest saved</p>
+                {(() => {
+                  // Currency-aware prepay chunk: ₹1L for INR, $1,000 for USD
+                  const prepayAmt = loan.currency === 'INR' ? 100000 : 1000
+                  const prepayLabel = loan.currency === 'INR' ? '₹1L' : '$1K'
+                  const saved = remainingPrincipalFixedEMI > prepayAmt
+                    ? scheduleRows.filter(r => r.status !== 'paid').reduce((s, r) => s + r.interest_amount, 0) *
+                      (prepayAmt / remainingPrincipalFixedEMI)
+                    : 0
+                  return (
+                    <>
+                      <p className="text-xs text-slate-500">Prepay {prepayLabel} → Save</p>
+                      <p className="text-base font-bold text-emerald-600 mt-0.5">
+                        {formatCurrency(Math.round(saved), loan.currency)}
+                      </p>
+                      <p className="text-xs text-slate-400">approx. interest saved</p>
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </CardContent>

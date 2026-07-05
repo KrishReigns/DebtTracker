@@ -155,18 +155,17 @@ function generateSimpleInterestSchedule(
   return rows
 }
 
-/** Bullet repayment — single lump-sum at maturity */
+/** Bullet repayment — single lump-sum on dueDate; interest for tenureMonths */
 function generateBulletSchedule(
   principal: number,
   annualRate: number,
   tenureMonths: number,
-  startDate: string
+  dueDate: string
 ): AmortizationRow[] {
   const totalInterest = round(principal * (annualRate / 100) * (tenureMonths / 12))
-  const dueDate = addMonths(parseISO(startDate), tenureMonths)
   return [{
     month: 1,
-    date: format(dueDate, 'yyyy-MM-dd'),
+    date: format(parseISO(dueDate), 'yyyy-MM-dd'),
     openingBalance: principal,
     emi: round(principal + totalInterest),
     interest: totalInterest,
@@ -202,8 +201,14 @@ export function generateSchedule(
       return generateCreditCardSchedule(principal, annualRate, emiOverride ?? principal / 12, scheduleStart)
     case 'simple':
       return generateSimpleInterestSchedule(principal, annualRate / 12, tenureMonths || 12, scheduleStart)
-    case 'bullet':
-      return generateBulletSchedule(principal, annualRate, tenureMonths || 12, scheduleStart) // use scheduleStart to honour firstEmiDate
+    case 'bullet': {
+      // Maturity = explicit firstEmiDate if set, else startDate + tenure.
+      // (Passing scheduleStart would double-shift: start+1mo, then +tenure inside.)
+      const maturity = firstEmiDate && firstEmiDate.trim()
+        ? firstEmiDate.trim()
+        : format(addMonths(parseISO(startDate), tenureMonths || 12), 'yyyy-MM-dd')
+      return generateBulletSchedule(principal, annualRate, tenureMonths || 12, maturity)
+    }
     default:
       return generateAmortizationSchedule(principal, annualRate, tenureMonths, scheduleStart, emiOverride)
   }

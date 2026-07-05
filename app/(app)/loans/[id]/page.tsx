@@ -8,7 +8,7 @@ import ExportToolbar from '@/components/loans/ExportToolbar'
 import DeleteLoanButton from '@/components/loans/DeleteLoanButton'
 import { computeFamilyLoanState } from '@/lib/calculations'
 import { buttonVariants } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { cn, todayISO } from '@/lib/utils'
 import type { Loan, PaymentSchedule, PaymentTransaction, PaymentPlanRow, FamilyLoanState } from '@/lib/types'
 
 export default async function LoanDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -25,7 +25,7 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
   ])
 
   const loanTypeName = (loan.loan_type as string).replace(/_/g, ' ')
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayISO()
 
   const typedLoan = loan as Loan
   const typedTx = (transactions ?? []) as PaymentTransaction[]
@@ -43,7 +43,7 @@ export default async function LoanDetailPage({ params }: { params: Promise<{ id:
           <Link href="/loans" className="text-sm text-gray-500 hover:text-gray-700">← Loans</Link>
           <h1 className="text-2xl font-bold text-gray-900 mt-1">{loan.lender_name}</h1>
           <p className="text-sm text-gray-500 capitalize">
-            {loanTypeName} · {loan.currency} · {loan.repayment_mode === 'flexible_manual' ? 'Flexible' : 'Fixed EMI'}
+            {loanTypeName} · {loan.currency} · {loan.interest_type === 'revolving' ? 'Revolving' : loan.repayment_mode === 'flexible_manual' ? 'Flexible' : 'Fixed EMI'}
           </p>
         </div>
         <div className="flex items-center gap-2">

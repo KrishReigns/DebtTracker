@@ -3,8 +3,10 @@
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import * as XLSX from 'xlsx'
+import { format } from 'date-fns'
 import { createClient } from '@/lib/supabase'
 import { generateSchedule, calculateEMI } from '@/lib/calculations'
+import { todayISO } from '@/lib/utils'
 import { LOAN_TYPE_LABELS, type LoanType, type Currency, type InterestType, type RepaymentMode } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -78,18 +80,18 @@ function normalizeLoanType(val: string): LoanType {
 }
 
 function normalizeDate(val: string): string {
-  if (!val) return new Date().toISOString().split('T')[0]
+  if (!val) return todayISO()
   const trimmed = val.trim()
   // Already ISO
   if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
-  // DD/MM/YYYY or DD-MM-YYYY
-  const dmy = trimmed.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/)
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`
-  // MM/DD/YYYY
-  const mdy = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
-  if (mdy) {
-    const m = parseInt(mdy[1]), d = parseInt(mdy[2])
-    if (m <= 12 && d > 12) return `${mdy[3]}-${mdy[1].padStart(2,'0')}-${mdy[2].padStart(2,'0')}`
+  // Numeric D/M/Y or M/D/Y — disambiguate by which part exceeds 12.
+  // (The old code matched DD/MM first unconditionally, so 12/25/2024 became month 25.)
+  const num = trimmed.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/)
+  if (num) {
+    const a = parseInt(num[1]), b = parseInt(num[2])
+    if (a > 12 && b <= 12) return `${num[3]}-${num[2].padStart(2,'0')}-${num[1].padStart(2,'0')}` // DD/MM
+    if (b > 12 && a <= 12) return `${num[3]}-${num[1].padStart(2,'0')}-${num[2].padStart(2,'0')}` // MM/DD
+    if (a <= 12 && b <= 12) return `${num[3]}-${num[2].padStart(2,'0')}-${num[1].padStart(2,'0')}` // ambiguous → DD/MM (Indian convention)
   }
   // D-Mon-YYYY or Mon-YYYY
   const monMap: Record<string,string> = { jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12' }
@@ -100,8 +102,8 @@ function normalizeDate(val: string): string {
   }
   // Try JS Date parse as fallback
   const parsed = new Date(trimmed)
-  if (!isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0]
-  return new Date().toISOString().split('T')[0]
+  if (!isNaN(parsed.getTime())) return format(parsed, 'yyyy-MM-dd')
+  return todayISO()
 }
 
 function normalizeInterestType(val: string): InterestType {
