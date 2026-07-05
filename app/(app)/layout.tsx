@@ -19,12 +19,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const avatarUrl: string | null = meta.avatar_url ?? null
 
-  // Count overdue payments for badge
+  // Count overdue payments for badge — active loans only, and include
+  // half-paid (partial) rows past their due date, matching the Payments page
   const today = todayISO()
   const { count: overdueCount } = await supabase
     .from('payment_schedules')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'pending')
+    .select('id, loans!inner(status)', { count: 'exact', head: true })
+    .eq('loans.status', 'active')
+    .in('status', ['pending', 'partial'])
     .lt('contractual_due_date', today)
 
   return (

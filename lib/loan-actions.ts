@@ -30,9 +30,9 @@ export function computeNewLoanStatus(
     const allSettled = scheduleRows.every(r => r.status === 'paid' || r.status === 'skipped')
     return allSettled ? 'closed' : 'active'
   }
-  // flexible_manual
+  // flexible_manual — closed only when principal AND accrued interest are settled
   if (!familyState) return 'active'
-  return familyState.outstandingPrincipal <= 0.01 ? 'closed' : 'active'
+  return familyState.totalPayable <= 0.01 ? 'closed' : 'active'
 }
 
 // ---------------------------------------------------------------------------
@@ -114,13 +114,16 @@ export async function markScheduleRowPaid(
     .eq('schedule_row_id', scheduleRowId)
   if (delErr) throw new Error(`Could not update payment record: ${delErr.message}`)
 
+  // Overpayment beyond the scheduled EMI counts as extra principal, so the
+  // applied fields always sum to the cash actually paid
+  const extraPrincipal = Math.max(0, paidAmount - emiAmount)
   const { error: insErr } = await supabase.from('payment_transactions').insert({
     loan_id: loanId,
     schedule_row_id: scheduleRowId,
     payment_date: paymentDate,
     amount: paidAmount,
-    principal_applied: isFullPayment ? principalAmount : Math.max(0, paidAmount - interestAmount),
-    interest_applied: isFullPayment ? interestAmount : Math.min(paidAmount, interestAmount),
+    principal_applied: isFullPayment ? principalAmount + extraPrincipal : Math.max(0, paidAmount - interestAmount),
+    interest_applied: isFullPayment ? Math.min(interestAmount, paidAmount) : Math.min(paidAmount, interestAmount),
     note,
     payment_method: paymentMethod,
   })
@@ -201,10 +204,12 @@ export async function recomputeFlexibleAllocations(loanId: string, supabase: Sup
 
   let outstanding = loan.principal
   let lastDate = loan.start_date
+  let carriedInterest = 0 // unpaid interest shortfall carries to the next payment
 
   for (const tx of txs) {
-    const accrued = computeDailyAccruedInterest(outstanding, loan.interest_rate, lastDate, tx.payment_date)
+    const accrued = carriedInterest + computeDailyAccruedInterest(outstanding, loan.interest_rate, lastDate, tx.payment_date)
     const { principalApplied, interestApplied, remainingBalance } = allocatePayment(outstanding, accrued, tx.amount)
+    carriedInterest = Math.max(0, Math.round((accrued - interestApplied) * 100) / 100)
 
     await supabase
       .from('payment_transactions')

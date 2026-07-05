@@ -120,7 +120,7 @@ export default async function LoansPage() {
         </div>
       </div>
 
-      {active.length === 0 && (
+      {loans.length === 0 && (
         <div className="text-center py-16 text-gray-400">
           <div className="text-5xl mb-3">🏦</div>
           <p className="text-lg font-medium">No loans yet</p>

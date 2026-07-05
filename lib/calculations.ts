@@ -265,17 +265,21 @@ export function computeFamilyLoanState(
   let totalPaid = 0
   let principalRepaid = 0
   let lastDate = startDate
+  // Unpaid interest carries forward: a payment smaller than accrued interest
+  // must not erase the shortfall — it stays owed until a later payment covers it.
+  let carriedInterest = 0
 
   for (const tx of transactions) {
-    const accrued = computeDailyAccruedInterest(outstandingPrincipal, annualRate, lastDate, tx.payment_date)
-    const { principalApplied } = allocatePayment(outstandingPrincipal, accrued, tx.amount)
+    const accrued = round(carriedInterest + computeDailyAccruedInterest(outstandingPrincipal, annualRate, lastDate, tx.payment_date))
+    const { principalApplied, interestApplied } = allocatePayment(outstandingPrincipal, accrued, tx.amount)
+    carriedInterest = round(accrued - interestApplied)
     outstandingPrincipal = round(outstandingPrincipal - principalApplied)
     totalPaid += tx.amount
     principalRepaid += principalApplied
     lastDate = tx.payment_date
   }
 
-  const accruedInterest = computeDailyAccruedInterest(outstandingPrincipal, annualRate, lastDate, asOfDate)
+  const accruedInterest = round(carriedInterest + computeDailyAccruedInterest(outstandingPrincipal, annualRate, lastDate, asOfDate))
 
   return {
     outstandingPrincipal,
@@ -311,15 +315,21 @@ export function buildFlexiblePlanner(
   const rows: PlannerRow[] = []
   let balance = outstandingPrincipal
   let lastDate = asOfDate
+  let carriedInterest = 0
   const txDates = new Set(transactions.map(t => t.payment_date))
 
   planRows.forEach((plan, i) => {
     const plannedAmt = plan.planned_amount ?? 0
-    const accrued = plan.planned_date
-      ? computeDailyAccruedInterest(balance, annualRate, lastDate, plan.planned_date)
-      : 0
-    const { principalApplied, interestApplied, remainingBalance } = allocatePayment(balance, accrued, plannedAmt)
     const isPaid = plan.planned_date ? txDates.has(plan.planned_date) : false
+    const accrued = plan.planned_date
+      ? round(carriedInterest + computeDailyAccruedInterest(balance, annualRate, lastDate, plan.planned_date))
+      : carriedInterest
+    // Rows already paid are baked into the CURRENT outstanding balance we started
+    // from — subtracting them again would double-count the payment.
+    const { principalApplied, interestApplied, remainingBalance } = isPaid
+      ? { principalApplied: 0, interestApplied: 0, remainingBalance: balance }
+      : allocatePayment(balance, accrued, plannedAmt)
+    if (!isPaid) carriedInterest = round(accrued - interestApplied)
 
     rows.push({
       index: i + 1,
@@ -332,7 +342,7 @@ export function buildFlexiblePlanner(
       isPaid,
     })
 
-    if (plan.planned_date) lastDate = plan.planned_date
+    if (plan.planned_date && !isPaid) lastDate = plan.planned_date
     balance = remainingBalance
   })
 

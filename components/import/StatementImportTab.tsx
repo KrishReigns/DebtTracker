@@ -33,6 +33,7 @@ export default function StatementImportTab() {
   const [cards, setCards] = useState<Loan[]>([])
   const [step, setStep] = useState<Step>('upload')
   const [error, setError] = useState<string | null>(null)
+  const [importNote, setImportNote] = useState<string | null>(null)
   const [statement, setStatement] = useState<ParsedStatement | null>(null)
   const [selectedCardId, setSelectedCardId] = useState<string>('')
   const [password, setPassword] = useState('')
@@ -85,6 +86,13 @@ export default function StatementImportTab() {
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    // Vercel serverless caps request bodies at ~4.5 MB — reject up front with a
+    // clear message instead of letting the platform return an opaque error
+    if (file.size > 4 * 1024 * 1024) {
+      setError('PDF is larger than 4 MB. Try downloading a smaller statement (most banks offer a "statement only" PDF without promotional pages).')
+      setStep('error')
+      return
+    }
     pendingFile.current = file
     setStep('checking')
     setError(null)
@@ -113,16 +121,20 @@ export default function StatementImportTab() {
     }
   }
 
+  const [unlocking, setUnlocking] = useState(false)
   async function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!password.trim() || !pendingFile.current) return
+    if (unlocking || !password.trim() || !pendingFile.current) return
     setPasswordError(null)
+    setUnlocking(true)
     try {
       const text = await extractPdfText(await pendingFile.current.arrayBuffer(), password)
       await sendToApi(null, text)
     } catch (err: unknown) {
       if ((err as { name?: string })?.name === 'PasswordException') setPasswordError('Incorrect password.')
       else { setError(err instanceof Error ? err.message : 'Unknown error'); setStep('error') }
+    } finally {
+      setUnlocking(false)
     }
   }
 
@@ -187,7 +199,23 @@ export default function StatementImportTab() {
     })
     if (txErr) throw new Error(`Statement record failed to save: ${txErr.message}`)
 
-    if (statement.newBalance != null) {
+    // Importing an OLDER statement must not regress the card's balance or due
+    // date — record it as history only.
+    let isHistoryImport = false
+    if (statement.statementDate) {
+      const { data: newer } = await supabase
+        .from('payment_transactions')
+        .select('payment_date')
+        .eq('loan_id', card.id).eq('payment_method', 'statement_import')
+        .gt('payment_date', statement.statementDate)
+        .limit(1)
+      isHistoryImport = (newer?.length ?? 0) > 0
+    }
+    setImportNote(isHistoryImport
+      ? 'This statement is older than one already imported — recorded as history; card balance and due date were kept from the newer statement.'
+      : null)
+
+    if (statement.newBalance != null && !isHistoryImport) {
       const { error: prErr } = await supabase.from('loans').update({ principal: statement.newBalance }).eq('id', card.id)
       if (prErr) throw new Error(`Balance update failed: ${prErr.message}`)
       const dueDate = statement.dueDate ?? daysFromNowISO(30)
@@ -309,7 +337,7 @@ export default function StatementImportTab() {
               </svg>
               <div className="text-center">
                 <p className="text-sm font-medium text-slate-600">Upload PDF statement</p>
-                <p className="text-xs text-slate-400 mt-1">Chase, Citi, Amex, Capital One, HDFC, ICICI &amp; more · Password-protected supported · Max 10 MB</p>
+                <p className="text-xs text-slate-400 mt-1">Chase, Citi, Amex, Capital One, HDFC, ICICI &amp; more · Password-protected supported · Max 4 MB</p>
               </div>
               <input ref={fileRef} type="file" accept="application/pdf" className="hidden" onChange={handleFile} />
             </label>
@@ -337,9 +365,9 @@ export default function StatementImportTab() {
           <form onSubmit={handlePasswordSubmit} className="flex gap-2">
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="PDF password" autoFocus
               className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-            <button type="submit" disabled={!password.trim()}
+            <button type="submit" disabled={!password.trim() || unlocking}
               className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 transition-colors">
-              Unlock
+              {unlocking ? 'Unlocking…' : 'Unlock'}
             </button>
           </form>
           {passwordError && <p className="text-xs text-red-500">{passwordError}</p>}
@@ -396,18 +424,21 @@ export default function StatementImportTab() {
                 {cards.map(card => {
                   const currencyMismatch = card.currency !== statement.currency
                   return (
-                    <button key={card.id} onClick={() => setSelectedCardId(card.id)}
+                    <button key={card.id}
+                      onClick={() => !currencyMismatch && setSelectedCardId(card.id)}
+                      disabled={currencyMismatch}
+                      title={currencyMismatch ? `This card is in ${card.currency}, the statement is in ${statement.currency}` : undefined}
                       className={`text-left rounded-lg border px-3 py-2.5 transition-all text-sm ${
                         selectedCardId === card.id
                           ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-300'
                           : currencyMismatch
-                            ? 'border-slate-200 opacity-50 hover:opacity-70'
+                            ? 'border-slate-200 opacity-40 cursor-not-allowed'
                             : 'border-slate-200 hover:border-indigo-200'
                       }`}>
                       <p className="font-medium text-slate-800">{card.lender_name}</p>
                       <p className="text-xs text-slate-400">
                         {card.currency} · {card.interest_rate}% p.a.
-                        {currencyMismatch && <span className="ml-1 text-amber-500">· different currency</span>}
+                        {currencyMismatch && <span className="ml-1 text-amber-500">· {card.currency} card — can&apos;t take a {statement.currency} statement</span>}
                       </p>
                     </button>
                   )
@@ -526,7 +557,9 @@ export default function StatementImportTab() {
             </div>
             <div>
               <p className="text-sm font-semibold text-emerald-800">Statement imported</p>
-              <p className="text-xs text-emerald-600 mt-1">{selectedCard.lender_name} balance and payment history updated.</p>
+              <p className="text-xs text-emerald-600 mt-1">
+                {importNote ?? `${selectedCard.lender_name} balance and payment history updated.`}
+              </p>
             </div>
           </div>
           <div className="flex gap-2">

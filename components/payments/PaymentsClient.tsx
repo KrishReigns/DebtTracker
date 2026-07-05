@@ -37,12 +37,13 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
   // ── Enriched schedule rows ─────────────────────────────────────────────────
   const enrichedSchedule = schedules.map(s => {
     const loan = loanMap[s.loan_id]
+    // A half-paid EMI past its due date is overdue, not merely "partial"
     const computedStatus = s.status === 'paid' ? 'paid'
-      : s.status === 'partial' ? 'partial'
       : s.status === 'skipped' ? 'skipped'
       : s.contractual_due_date < today ? 'overdue'
+      : s.status === 'partial' ? 'partial'
       : 'pending'
-    return { ...s, computedStatus, isClosedLoan: loan?.status !== 'active' }
+    return { ...s, computedStatus, isPartial: s.status === 'partial', isClosedLoan: loan?.status !== 'active' }
   })
 
   // ── Flexible active loans ──────────────────────────────────────────────────
@@ -64,7 +65,7 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
 
   // ── Cutoff for upcoming (next 3 months) ────────────────────────────────────
   const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth() + 3)
-  const cutoffStr = cutoff.toISOString().split('T')[0]
+  const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`
 
   // ── Filter logic ──────────────────────────────────────────────────────────
   const filteredSchedule = enrichedSchedule.filter(s => {
@@ -74,9 +75,9 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
     if (filter === 'overdue') return s.computedStatus === 'overdue'
     if (filter === 'pending') return s.computedStatus === 'pending' || s.computedStatus === 'partial'
     if (filter === 'paid') return s.computedStatus === 'paid'
-    // "All" tab: show everything except far-future pending (beyond 3 months) to keep the list manageable
-    // Use "Pending" tab to see all future scheduled payments
-    if (filter === 'all') return s.computedStatus !== 'pending' || s.contractual_due_date <= cutoffStr
+    // "All" tab: cap far-future rows (any unpaid status) at 3 months to keep the
+    // list manageable — use the Pending tab to see the full future schedule
+    if (filter === 'all') return s.computedStatus === 'paid' || s.contractual_due_date <= cutoffStr
     return true
   })
 
@@ -188,10 +189,18 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
                         {' · '}Accrued: <span className={NUM_COLORS.interest}>{formatCurrency(state.accruedInterest, loan.currency)}</span>
                       </p>
                     </div>
-                    <div className="text-right">
-                      <p className={`text-sm font-semibold ${NUM_COLORS.outstanding}`}>{formatCurrency(state.outstandingPrincipal, loan.currency)}</p>
-                      <p className="text-xs text-slate-400">outstanding</p>
-                      <p className={`text-xs font-medium ${NUM_COLORS.payable}`}>{formatCurrency(state.totalPayable, loan.currency)} payable</p>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className={`text-sm font-semibold ${NUM_COLORS.outstanding}`}>{formatCurrency(state.outstandingPrincipal, loan.currency)}</p>
+                        <p className="text-xs text-slate-400">outstanding</p>
+                        <p className={`text-xs font-medium ${NUM_COLORS.payable}`}>{formatCurrency(state.totalPayable, loan.currency)} payable</p>
+                      </div>
+                      <Button
+                        size="sm" variant="outline" className="text-xs h-8"
+                        onClick={() => setRecordModal({ open: true, loan })}
+                      >
+                        Record Payment
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -263,7 +272,7 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
                             {status === 'overdue' && (
                               <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${STATUS_COLORS.overdue.badge}`}>Overdue</span>
                             )}
-                            {status === 'partial' && (
+                            {s.isPartial && status !== 'paid' && (
                               <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${STATUS_COLORS.partial.badge}`}>Partial</span>
                             )}
                           </div>
@@ -276,7 +285,7 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
                               <span>Paid: <span className={NUM_COLORS.paid}>{formatDate(s.planned_pay_date)}</span></span>
                             )}
                           </div>
-                          {status === 'partial' && (
+                          {s.isPartial && status !== 'paid' && (
                             <p className={`text-xs mt-0.5 ${NUM_COLORS.interest}`}>
                               Paid: {formatCurrency(alreadyPaid, loan.currency)} · Remaining: {formatCurrency(s.emi_amount - alreadyPaid, loan.currency)}
                             </p>
@@ -294,6 +303,10 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
                           </div>
 
                           {status === 'paid' ? (
+                            s.isClosedLoan ? (
+                              // Reopening a settled loan's row from the Closed tab is a trap
+                              <span className="text-xs text-slate-300 w-24 text-center">—</span>
+                            ) : (
                             <Button
                               size="sm" variant="outline"
                               className="text-xs h-8 w-24 text-amber-600 border-amber-200 hover:bg-amber-50"
@@ -302,7 +315,8 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
                             >
                               {actionId === s.id ? '…' : 'Mark Unpaid'}
                             </Button>
-                          ) : status === 'partial' ? (
+                            )
+                          ) : s.isPartial ? (
                             <Button
                               size="sm" variant="outline"
                               className="text-xs h-8 w-24"

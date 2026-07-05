@@ -8,8 +8,9 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   const supabase = await createClient()
 
+  // Paused loans are still owed — only closed loans leave the dashboard
   const [{ data: loans }, { data: rates }] = await Promise.all([
-    supabase.from('loans').select('*').eq('status', 'active').order('created_at'),
+    supabase.from('loans').select('*').in('status', ['active', 'paused']).order('created_at'),
     supabase.from('exchange_rates').select('*'),
   ])
 

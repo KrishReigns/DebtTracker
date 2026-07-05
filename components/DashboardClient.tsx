@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { format, addMonths, differenceInMonths } from 'date-fns'
 import { computeFamilyLoanState, formatCurrency, convertCurrency } from '@/lib/calculations'
 import { LOAN_TYPE_LABELS, LOAN_TYPE_COLORS, CURRENCY_SYMBOLS } from '@/lib/types'
-import { formatDateShort, todayISO } from '@/lib/utils'
+import { formatDateShort, formatMonthYear, todayISO } from '@/lib/utils'
 import type { Loan, PaymentSchedule, PaymentTransaction, ExchangeRate } from '@/lib/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -36,8 +36,12 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
 
   function getRate(from: 'INR' | 'USD', to: 'INR' | 'USD'): number {
     if (from === to) return 1
-    const r = exchangeRates.find(r => r.from_currency === from && r.to_currency === to)
-    return r?.rate ?? (from === 'USD' ? 84.5 : 1 / 84.5)
+    const direct = exchangeRates.find(r => r.from_currency === from && r.to_currency === to)
+    if (direct) return direct.rate
+    // Invert the stored reverse rate before falling back to the hardcoded default
+    const reverse = exchangeRates.find(r => r.from_currency === to && r.to_currency === from)
+    if (reverse && reverse.rate > 0) return 1 / reverse.rate
+    return from === 'USD' ? 84.5 : 1 / 84.5
   }
 
   function toView(amount: number, currency: 'INR' | 'USD'): number {
@@ -66,13 +70,13 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
       accruedInterest = state.accruedInterest
       // No fixed due date for flexible loans
     } else if (loan.loan_type === 'credit_card') {
-      // Credit card: balance is loan.principal; due date from latest statement note
+      // Credit card: balance is loan.principal; due date from the PENDING statement
+      // row (a stale imported statement whose row was paid must not flag overdue)
       outstandingPrincipal = loan.principal
-      const lastTx = [...loanTx].sort((a, b) => b.payment_date.localeCompare(a.payment_date))[0]
-      const dueDateMatch = lastTx?.note?.match(/Due: (\d{4}-\d{2}-\d{2})/)
-      if (dueDateMatch) {
-        nextDueDate = dueDateMatch[1]
-        nextDueAmount = loan.principal
+      const duePending = loanSchedule.find(r => r.status === 'pending' || r.status === 'partial')
+      if (duePending && loan.status === 'active') {
+        nextDueDate = duePending.contractual_due_date
+        nextDueAmount = Math.max(0, duePending.emi_amount - (duePending.amount_paid ?? 0))
         isOverdue = nextDueDate < today
       }
     } else {
@@ -92,28 +96,34 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
   const totalDebt = loanStats.reduce((s, l) => s + toView(l.outstandingPrincipal + l.accruedInterest, l.loan.currency), 0)
   const totalOriginal = loans.reduce((s, l) => s + toView(l.principal, l.currency), 0)
 
-  // Donut data — group by loan TYPE (more insightful than per-lender)
+  // Donut data — group by loan TYPE; include accrued interest so the donut
+  // total matches the Total Debt KPI above it
   const typeMap: Record<string, { value: number; color: string; label: string; count: number }> = {}
   for (const l of loanStats.filter(s => s.outstandingPrincipal > 0)) {
     const t = l.loan.loan_type
     if (!typeMap[t]) typeMap[t] = { value: 0, color: LOAN_TYPE_COLORS[t] ?? '#94a3b8', label: LOAN_TYPE_LABELS[t] ?? t, count: 0 }
-    typeMap[t].value += Math.round(toView(l.outstandingPrincipal, l.loan.currency))
+    typeMap[t].value += Math.round(toView(l.outstandingPrincipal + l.accruedInterest, l.loan.currency))
     typeMap[t].count++
   }
   const donutData = Object.values(typeMap).sort((a, b) => b.value - a.value)
   const donutTotal = donutData.reduce((s, d) => s + d.value, 0)
 
-  // Monthly outflow (next 12 months) — single viewCurrency, from all schedule rows
+  // Monthly outflow (next 12 months) — single viewCurrency, from all schedule rows.
+  // Skipped rows aren't owed; partial rows only owe the remainder.
   const monthlyOutflow: { month: string; amount: number }[] = []
   for (let i = 0; i < 12; i++) {
     const d = addMonths(new Date(), i)
     const monthStr = format(d, 'yyyy-MM')
     let total = 0
     for (const sched of schedules) {
-      if (sched.contractual_due_date.startsWith(monthStr) && sched.status !== 'paid') {
-        const loan = loans.find(l => l.id === sched.loan_id)
-        if (loan) total += toView(sched.emi_amount, loan.currency)
-      }
+      if (!sched.contractual_due_date.startsWith(monthStr)) continue
+      if (sched.status === 'paid' || sched.status === 'skipped') continue
+      const loan = loans.find(l => l.id === sched.loan_id)
+      if (!loan) continue
+      const owed = sched.status === 'partial'
+        ? Math.max(0, sched.emi_amount - (sched.amount_paid ?? 0))
+        : sched.emi_amount
+      total += toView(owed, loan.currency)
     }
     monthlyOutflow.push({ month: format(d, 'MMM'), amount: Math.round(total) })
   }
@@ -165,13 +175,28 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
     return result
   }, [extraMonthly, debtTrajectory])
 
-  const monthsSooner = useMemo<number>(() => {
-    if (!accelTrajectory || accelTrajectory.length === 0) return 0
+  // Honest savings claim: "X months sooner" only when the base path actually
+  // clears within the projection window. If it doesn't (open-ended family
+  // loans), the claim would be measured against an arbitrary horizon cap.
+  const accelSummary = useMemo<
+    | { kind: 'sooner'; months: number }
+    | { kind: 'accel-only'; months: number }
+    | { kind: 'reduction'; amount: number }
+    | null
+  >(() => {
+    if (!accelTrajectory || accelTrajectory.length === 0) return null
     const basePayoff = debtTrajectory.findIndex(p => p.amount <= 0)
     const accelPayoff = accelTrajectory.findIndex(v => v <= 0)
-    const baseIdx = basePayoff === -1 ? debtTrajectory.length : basePayoff
-    const accelIdx = accelPayoff === -1 ? accelTrajectory.length : accelPayoff
-    return Math.max(0, baseIdx - accelIdx)
+    if (basePayoff !== -1 && accelPayoff !== -1) {
+      return { kind: 'sooner', months: Math.max(0, basePayoff - accelPayoff) }
+    }
+    if (accelPayoff !== -1) {
+      return { kind: 'accel-only', months: accelPayoff }
+    }
+    // Neither clears — report the balance reduction at the end of the window
+    const lastBase = debtTrajectory[debtTrajectory.length - 1]?.amount ?? 0
+    const lastAccel = accelTrajectory[accelTrajectory.length - 1] ?? 0
+    return { kind: 'reduction', amount: Math.max(0, lastBase - lastAccel) }
   }, [accelTrajectory, debtTrajectory])
 
   const trajectoryData = useMemo(() =>
@@ -194,6 +219,10 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
       payoffDate: loan.repayment_mode === 'flexible_manual' ? null : (lastRow?.contractual_due_date ?? null),
       monthsLeft: lastRow ? Math.max(0, differenceInMonths(new Date(lastRow.contractual_due_date), now)) : null,
       outstanding: ls ? toView(ls.outstandingPrincipal + ls.accruedInterest, loan.currency) : 0,
+      // What an open-ended family loan costs per day — makes the rate visceral
+      dailyInterest: loan.repayment_mode === 'flexible_manual' && ls
+        ? toView(ls.outstandingPrincipal * loan.interest_rate / 100 / 365, loan.currency)
+        : null,
     }
   }).sort((a, b) => {
     if (!a.payoffDate && !b.payoffDate) return 0
@@ -241,8 +270,13 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
     ? new Date(debtFreeDate).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
     : hasActiveFlexible ? 'Ongoing' : null
 
-  // Y-axis formatter
+  // Y-axis formatter — lakhs for INR, K/M for USD
   function fmtAxis(v: number) {
+    if (viewCurrency === 'USD') {
+      if (v >= 1000000) return `${(v / 1000000).toFixed(v % 1000000 === 0 ? 0 : 1)}M`
+      if (v >= 1000) return `${(v / 1000).toFixed(0)}K`
+      return String(v)
+    }
     if (v >= 100000) return `${(v / 100000).toFixed(v % 100000 === 0 ? 0 : 1)}L`
     if (v >= 1000) return `${(v / 1000).toFixed(0)}K`
     return String(v)
@@ -476,8 +510,8 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                   <div className="flex-1 min-w-0">
                     <CardTitle className="text-sm">Debt Trajectory</CardTitle>
                     <p className="text-xs text-slate-400 mt-0.5">Projected outstanding · {viewCurrency}</p>
-                    {/* Extra payment input */}
-                    <div className="flex items-center gap-1.5 mt-2">
+                    {/* Extra payment input + quick presets */}
+                    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                       <span className="text-[10px] text-slate-400 shrink-0">Pay extra/month:</span>
                       <span className="text-[10px] text-slate-500 shrink-0">{sym}</span>
                       <input
@@ -488,6 +522,19 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                         onChange={e => setExtraMonthly(Math.max(0, Number(e.target.value) || 0))}
                         className="w-24 text-xs border border-slate-200 rounded px-1.5 py-0.5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200"
                       />
+                      {(viewCurrency === 'INR' ? [10000, 25000, 50000] : [100, 250, 500]).map(amt => (
+                        <button
+                          key={amt}
+                          onClick={() => setExtraMonthly(extraMonthly === amt ? 0 : amt)}
+                          className={`text-[10px] px-1.5 py-0.5 rounded-full border transition-colors ${
+                            extraMonthly === amt
+                              ? 'bg-indigo-600 border-indigo-600 text-white'
+                              : 'border-slate-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-600'
+                          }`}
+                        >
+                          +{amt >= 1000 ? `${amt / 1000}K` : amt}
+                        </button>
+                      ))}
                     </div>
                   </div>
                   {debtFreeDate && (
@@ -532,27 +579,38 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
-                {/* Savings callout */}
-                {accelTrajectory && monthsSooner > 0 && (
+                {/* Savings callout — claim depends on whether the base path clears */}
+                {accelSummary && (accelSummary.kind !== 'sooner' || accelSummary.months > 0) ? (
                   <div className="shrink-0 mt-3 flex items-center gap-2.5 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
                     <span className="text-lg shrink-0">🎯</span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-emerald-700">
-                        Debt-free {monthsSooner} month{monthsSooner !== 1 ? 's' : ''} sooner
-                      </p>
+                      {accelSummary.kind === 'sooner' && (
+                        <p className="text-xs font-semibold text-emerald-700">
+                          Debt-free {accelSummary.months} month{accelSummary.months !== 1 ? 's' : ''} sooner
+                        </p>
+                      )}
+                      {accelSummary.kind === 'accel-only' && (
+                        <p className="text-xs font-semibold text-emerald-700">
+                          Debt-free in ~{accelSummary.months} months — current path doesn&apos;t clear within {horizonMonths} months
+                        </p>
+                      )}
+                      {accelSummary.kind === 'reduction' && (
+                        <p className="text-xs font-semibold text-emerald-700">
+                          {sym}{Math.round(accelSummary.amount).toLocaleString()} lower balance after {horizonMonths} months
+                        </p>
+                      )}
                       <p className="text-[10px] text-emerald-600 mt-0.5">
-                        with {sym}{extraMonthly.toLocaleString()} extra per month · <span className="text-slate-400">green dashed line</span>
+                        with {sym}{extraMonthly.toLocaleString()} extra per month · <span className="text-slate-400">green dashed line · approximation, family-loan interest not compounded</span>
                       </p>
                     </div>
                   </div>
-                )}
-                {accelTrajectory && monthsSooner === 0 && (
+                ) : accelSummary ? (
                   <div className="shrink-0 mt-3 px-3 py-2 bg-slate-50 rounded-lg">
                     <p className="text-[10px] text-slate-400 text-center">
                       Extra payment too small to accelerate payoff within projection window
                     </p>
                   </div>
-                )}
+                ) : null}
               </CardContent>
             </Card>
 
@@ -563,7 +621,7 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                 <p className="text-xs text-slate-400 -mt-1">When each loan clears</p>
               </CardHeader>
               <CardContent className="pt-0 space-y-0.5">
-                {loanPayoffs.map(({ loan, payoffDate, monthsLeft, outstanding }) => {
+                {loanPayoffs.map(({ loan, payoffDate, monthsLeft, outstanding, dailyInterest }) => {
                   const pct = debtTrajectory[0]?.amount > 0
                     ? Math.round((outstanding / debtTrajectory[0].amount) * 100) : 0
                   const color = LOAN_TYPE_COLORS[loan.loan_type] ?? '#6366f1'
@@ -586,14 +644,18 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                         {payoffDate ? (
                           <>
                             <p className="text-xs font-semibold text-slate-700">
-                              {new Date(payoffDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                              {formatMonthYear(payoffDate)}
                             </p>
-                            <p className="text-[10px] text-slate-400">{monthsLeft}mo left</p>
+                            <p className="text-[10px] text-slate-400">{monthsLeft === 0 ? 'this month' : `${monthsLeft}mo left`}</p>
                           </>
                         ) : (
                           <>
                             <p className="text-xs font-semibold text-amber-600">Flexible</p>
-                            <p className="text-[10px] text-slate-400">open-ended</p>
+                            <p className="text-[10px] text-slate-400">
+                              {dailyInterest && dailyInterest >= 1
+                                ? `costs ${sym}${Math.round(dailyInterest).toLocaleString()}/day`
+                                : 'open-ended'}
+                            </p>
                           </>
                         )}
                       </div>

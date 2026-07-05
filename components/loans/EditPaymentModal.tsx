@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { recomputeFlexibleAllocations, syncLoanStatus } from '@/lib/loan-actions'
 import { formatCurrency } from '@/lib/calculations'
+import { formatDate } from '@/lib/utils'
 import type { Loan, PaymentTransaction } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -152,7 +153,7 @@ export default function EditPaymentModal({ loan, transaction, open, onClose }: P
             {confirmDelete ? (
               <div className="space-y-2">
                 <p className="text-sm text-red-600 font-medium">
-                  Delete this {formatCurrency(transaction.amount, loan.currency)} payment on {transaction.payment_date}?
+                  Delete this {formatCurrency(transaction.amount, loan.currency)} payment on {formatDate(transaction.payment_date)}?
                   This will recalculate all balances.
                 </p>
                 <div className="flex gap-2">

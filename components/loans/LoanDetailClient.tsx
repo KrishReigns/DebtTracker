@@ -47,9 +47,16 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
   const [editingDateRowId, setEditingDateRowId] = useState<string | null>(null)
 
   const isFlexible = loan.repayment_mode === 'flexible_manual'
+  const isCreditCard = loan.interest_type === 'revolving' || loan.loan_type === 'credit_card'
   const today = todayISO()
   const color = LOAN_TYPE_COLORS[loan.loan_type]
   const sortedTx = [...transactions].sort((a, b) => a.payment_date.localeCompare(b.payment_date))
+
+  // ── Credit-card helpers ────────────────────────────────────────────────────
+  const statementTxs = sortedTx.filter(t => t.payment_method === 'statement_import')
+  const ccPaymentsRecorded = sortedTx
+    .filter(t => t.payment_method !== 'statement_import')
+    .reduce((s, t) => s + t.amount, 0)
 
   const takenDate = loan.disbursement_date ?? loan.start_date
 
@@ -282,12 +289,12 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
               <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Rate</p>
               <p className="text-sm font-medium text-slate-800">{loan.interest_rate}% p.a. · {loan.interest_type}</p>
             </div>
-            {loan.tenure_months && (
+            {loan.tenure_months && !isCreditCard ? (
               <div>
                 <p className="text-xs text-slate-400 uppercase tracking-wide mb-1">Tenure</p>
                 <p className="text-sm font-medium text-slate-800">{loan.tenure_months} month{loan.tenure_months !== 1 ? 's' : ''}</p>
               </div>
-            )}
+            ) : null}
             <div className="w-full sm:w-auto sm:ml-auto flex flex-col items-start sm:items-end gap-1">
               {closeError && closeConfirm && (
                 <p className="text-xs text-amber-600 max-w-xs text-right">{closeError}</p>
@@ -315,6 +322,48 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
       </Card>
 
       {/* ── Summary cards ─────────────────────────────────────────────────── */}
+      {isCreditCard ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-slate-400 uppercase tracking-wide">Current Balance</p>
+              <p className={`text-xl font-bold mt-1 ${NUM_COLORS.outstanding}`}>{formatCurrency(loan.principal, loan.currency)}</p>
+              <p className="text-xs text-slate-400 mt-0.5">from last statement</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-slate-400 uppercase tracking-wide">Payment Due</p>
+              {pendingRows[0] ? (
+                <>
+                  <p className={`text-xl font-bold mt-1 ${pendingRows[0].contractual_due_date < today ? NUM_COLORS.outstanding : NUM_COLORS.neutral}`}>
+                    {formatDate(pendingRows[0].contractual_due_date)}
+                  </p>
+                  {pendingRows[0].contractual_due_date < today && (
+                    <p className="text-xs text-red-500 mt-0.5">overdue</p>
+                  )}
+                </>
+              ) : (
+                <p className={`text-xl font-bold mt-1 ${NUM_COLORS.paid}`}>Paid ✓</p>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-slate-400 uppercase tracking-wide">Statements</p>
+              <p className={`text-xl font-bold mt-1 ${NUM_COLORS.neutral}`}>{statementTxs.length}</p>
+              <p className="text-xs text-slate-400 mt-0.5">imported</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-xs text-slate-400 uppercase tracking-wide">Payments Recorded</p>
+              <p className={`text-xl font-bold mt-1 ${NUM_COLORS.paid}`}>{formatCurrency(ccPaymentsRecorded, loan.currency)}</p>
+              <p className="text-xs text-slate-400 mt-0.5">logged in tracker</p>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card>
           <CardContent className="pt-4">
@@ -368,9 +417,10 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
           </>
         )}
       </div>
+      )}
 
       {/* ── Insights panel (fixed-EMI only) ───────────────────────────────────── */}
-      {!isFlexible && totalRows > 0 && loan.status === 'active' && (
+      {!isFlexible && !isCreditCard && totalRows > 0 && loan.status === 'active' && (
         <Card className="border-indigo-100 bg-indigo-50/40">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-3">💡 Loan Insights</p>
@@ -428,7 +478,7 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
       )}
 
       {/* ── Progress bar (fixed-EMI) ────────────────────────────────────────── */}
-      {!isFlexible && totalRows > 0 && (
+      {!isFlexible && !isCreditCard && totalRows > 0 && (
         <Card>
           <CardContent className="pt-4 pb-3 space-y-2">
             <div className="flex justify-between text-sm">
@@ -488,7 +538,7 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
       )}
 
       {/* ── Chart ───────────────────────────────────────────────────────────── */}
-      {!isFlexible && chartData.length > 0 && (
+      {!isFlexible && !isCreditCard && chartData.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-600">Principal vs Interest (first 24 months)</CardTitle>
@@ -509,7 +559,7 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
       )}
 
       {/* ── Projected Payoff Chart ─────────────────────────────────────────── */}
-      {!isFlexible && payoffChartData.length > 0 && loan.status === 'active' && (
+      {!isFlexible && !isCreditCard && payoffChartData.length > 0 && loan.status === 'active' && (
         <Card>
           <CardHeader className="pb-2">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -582,9 +632,9 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
       {!isFlexible && pendingRows.length > 0 && loan.status === 'active' && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-sm text-slate-700">Upcoming Payments</CardTitle>
+            <CardTitle className="text-sm text-slate-700">{isCreditCard ? 'Statement Due' : 'Upcoming Payments'}</CardTitle>
             <Button size="sm" onClick={() => setRecordModal({ open: true, scheduleRow: pendingRows[0] })}>
-              Pay Next EMI
+              {isCreditCard ? 'Pay Statement' : 'Pay Next EMI'}
             </Button>
           </CardHeader>
           <CardContent className="space-y-0 divide-y divide-slate-100">
@@ -602,9 +652,11 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
                       {isOverdue && <span className={`text-xs font-normal px-1.5 py-0.5 rounded ${STATUS_COLORS.overdue.badge}`}>Overdue</span>}
                       {isPartial && <span className={`text-xs font-normal px-1.5 py-0.5 rounded ${STATUS_COLORS.partial.badge}`}>Partial · {formatCurrency(alreadyPaid, loan.currency)} paid</span>}
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      P: {formatCurrency(row.principal_amount, loan.currency)} · I: {formatCurrency(row.interest_amount, loan.currency)}
-                    </p>
+                    {!isCreditCard && (
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        P: {formatCurrency(row.principal_amount, loan.currency)} · I: {formatCurrency(row.interest_amount, loan.currency)}
+                      </p>
+                    )}
                     {row.planned_pay_date && (
                       <p className="text-xs text-indigo-400 mt-0.5">Planned: {formatDate(row.planned_pay_date)}</p>
                     )}
@@ -687,7 +739,11 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
                           }
                         </td>
                         <td className="py-1.5 pl-2">
-                          <button className="text-slate-300 hover:text-red-400 text-xs" onClick={() => deletePlanRow(planRow.id)}>✕</button>
+                          <button
+                            className="text-slate-300 hover:text-red-400 text-xs"
+                            aria-label={`Delete plan row ${row.index}`}
+                            onClick={() => { if (confirm('Delete this plan row?')) deletePlanRow(planRow.id) }}
+                          >✕</button>
                         </td>
                       </tr>
                     )
@@ -699,8 +755,40 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
         </Card>
       )}
 
+      {/* ── Statement history (credit cards) ─────────────────────────────────── */}
+      {isCreditCard && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-700">Statement History</CardTitle>
+            <p className="text-xs text-slate-400 -mt-0.5">Imported statements, newest first</p>
+          </CardHeader>
+          <CardContent>
+            {statementTxs.length === 0 ? (
+              <p className="text-sm text-slate-400 py-4 text-center">
+                No statements imported yet — use Import Sheet → Credit Card Statement.
+              </p>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {[...statementTxs].reverse().map(tx => (
+                  <div key={tx.id} className="flex items-center justify-between py-2.5 gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-700">{formatDate(tx.payment_date)}</p>
+                      {tx.note && <p className="text-xs text-slate-400 mt-0.5 truncate">{tx.note}</p>}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={`text-sm font-semibold ${NUM_COLORS.paid}`}>{formatCurrency(tx.amount, loan.currency)}</p>
+                      <p className="text-[10px] text-slate-400">payments that period</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Full schedule (fixed-EMI) ─────────────────────────────────────────── */}
-      {!isFlexible && scheduleRows.length > 0 && (
+      {!isFlexible && !isCreditCard && scheduleRows.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-slate-700">Full Amortization Schedule</CardTitle>

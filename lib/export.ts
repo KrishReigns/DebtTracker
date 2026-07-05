@@ -32,14 +32,16 @@ function triggerDownload(blob: Blob, filename: string) {
 function toCSV(rows: Record<string, string | number>[]): string {
   if (rows.length === 0) return ''
   const headers = Object.keys(rows[0])
+  const escape = (raw: string | number | undefined | null) => {
+    let v = String(raw ?? '')
+    // Excel formula injection guard: neutralize leading = + - @ in text cells
+    if (/^[=+\-@]/.test(v) && isNaN(Number(v))) v = `'${v}`
+    // Newlines inside a field must be quoted or they shear the row apart
+    return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
+  }
   const lines = [
     headers.join(','),
-    ...rows.map(r =>
-      headers.map(h => {
-        const v = String(r[h] ?? '')
-        return v.includes(',') || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v
-      }).join(',')
-    ),
+    ...rows.map(r => headers.map(h => escape(r[h])).join(',')),
   ]
   return lines.join('\n')
 }
