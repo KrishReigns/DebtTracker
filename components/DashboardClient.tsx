@@ -288,7 +288,10 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">{loans.length} active loans</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {loans.filter(l => l.status === 'active').length} active loans
+            {loans.some(l => l.status === 'paused') && ` · ${loans.filter(l => l.status === 'paused').length} paused`}
+          </p>
         </div>
         <div className="flex gap-2">
           <Button size="sm" className="h-10 px-4" variant={viewCurrency === 'INR' ? 'default' : 'outline'} onClick={() => setViewCurrency('INR')}>₹ INR</Button>
@@ -350,7 +353,11 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                 <p className="text-2xl font-bold mt-1 text-orange-500">{sym}{Math.round(totalDue30).toLocaleString()}</p>
                 <p className="text-xs text-gray-400 mt-1">
                   {upcomingFixed.length} payment{upcomingFixed.length !== 1 ? 's' : ''}
-                  {overdueFixed.length > 0 && <span className="text-red-500"> · {overdueFixed.length} overdue</span>}
+                  {overdueFixed.length > 0 && (
+                    <span className="text-red-500">
+                      {' '}+ {sym}{Math.round(overdueFixed.reduce((s, l) => s + toView(l.nextDueAmount, l.loan.currency), 0)).toLocaleString()} overdue
+                    </span>
+                  )}
                 </p>
               </CardContent>
             </Card>
@@ -438,7 +445,9 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                           <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: d.color }} />
                         </div>
                         <span className="text-slate-400 w-7 text-right">{pct}%</span>
-                        <span className="font-semibold text-slate-700 w-20 text-right">{sym}{(d.value/1000).toFixed(0)}K</span>
+                        <span className="font-semibold text-slate-700 w-20 text-right">
+                          {d.value >= 1000 ? `${sym}${fmtAxis(d.value)}` : `${sym}${d.value.toLocaleString()}`}
+                        </span>
                       </div>
                     )
                   })}

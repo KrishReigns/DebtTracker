@@ -204,6 +204,11 @@ export default function RecordPaymentModal({ loan, open, onClose, scheduleRow, t
                 Partial payment — installment will stay open until {formatCurrency(scheduleRow!.emi_amount, loan.currency, true)} is fully paid.
               </p>
             )}
+            {scheduleRow && enteredAmount > remainingDue + 1 && (
+              <p className="text-xs text-emerald-600 mt-1">
+                Overpaying by {formatCurrency(enteredAmount - remainingDue, loan.currency, true)} — the extra counts toward principal.
+              </p>
+            )}
           </div>
 
           {/* Live allocation preview for flexible loans */}

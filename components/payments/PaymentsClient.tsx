@@ -104,6 +104,11 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
     all: 'All', overdue: 'Overdue', pending: 'Pending', paid: 'Paid', closed: 'Closed'
   }
 
+  // How many upcoming rows the All tab is hiding beyond the 3-month window
+  const hiddenBeyondCutoff = filter === 'all'
+    ? enrichedSchedule.filter(s => !s.isClosedLoan && s.computedStatus !== 'paid' && s.contractual_due_date > cutoffStr).length
+    : 0
+
   return (
     <div className="space-y-4">
       {/* ── Summary tiles ────────────────────────────────────────────────── */}
@@ -345,6 +350,14 @@ export default function PaymentsClient({ loans, schedules, transactions }: Props
                 })
               )}
             </div>
+            {hiddenBeyondCutoff > 0 && (
+              <button
+                onClick={() => setFilter('pending')}
+                className="w-full py-2.5 border-t border-slate-100 text-xs text-slate-400 hover:text-indigo-600 transition-colors"
+              >
+                {hiddenBeyondCutoff} more scheduled payment{hiddenBeyondCutoff !== 1 ? 's' : ''} beyond 3 months — view all in Pending →
+              </button>
+            )}
           </CardContent>
         </Card>
       )}

@@ -55,16 +55,20 @@ export default async function LoansPage() {
         isClosed,
       }
     } else if (loan.loan_type === 'credit_card') {
-      // Credit cards: principal IS the current statement balance (updated on each import)
-      // Payment transactions track what was paid each month
-      const loanTx = transactions.filter(t => t.loan_id === loan.id)
-      const lastTx = loanTx.sort((a, b) => b.payment_date.localeCompare(a.payment_date))[0]
+      // Credit cards: principal IS the current statement balance (updated on each import).
+      // Due date comes from the pending statement row — same source as the dashboard,
+      // so the two screens can't disagree. Count only real statement imports.
+      const statementCount = transactions
+        .filter(t => t.loan_id === loan.id && t.payment_method === 'statement_import').length
+      const duePending = schedules
+        .filter(s => s.loan_id === loan.id && (s.status === 'pending' || s.status === 'partial'))
+        .sort((a, b) => a.contractual_due_date.localeCompare(b.contractual_due_date))[0]
       summaries[loan.id] = {
-        paidCount: loanTx.length,
+        paidCount: statementCount,
         totalCount: 0,
         remainingPrincipal: loan.principal,  // always the current statement balance
         nextEMI: null,
-        nextDueDate: lastTx?.note?.match(/Due: (\d{4}-\d{2}-\d{2})/)?.[1] ?? null,
+        nextDueDate: loan.status === 'active' ? (duePending?.contractual_due_date ?? null) : null,
       }
     } else {
       const rows = schedules.filter(s => s.loan_id === loan.id)
@@ -94,9 +98,10 @@ export default async function LoansPage() {
       totalPaid = loanTx.reduce((sum, t) => sum + t.amount, 0)
     } else {
       const rows = schedules.filter(s => s.loan_id === loan.id)
+      // Partial rows contribute only what was actually paid, not the full EMI
       totalPaid = rows
         .filter(r => r.status === 'paid' || r.status === 'partial')
-        .reduce((sum, r) => sum + r.emi_amount, 0)
+        .reduce((sum, r) => sum + (r.status === 'partial' ? (r.amount_paid ?? 0) : (r.amount_paid ?? r.emi_amount)), 0)
     }
     return {
       loan,
