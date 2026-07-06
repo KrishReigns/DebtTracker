@@ -261,12 +261,23 @@ export default function StatementImportTab() {
     try {
       const supabase = createClient()
 
-      // Guard: if a card with this exact bank name + currency already exists, reuse it
-      const alreadyExists = cards.find(
-        c => c.lender_name.toLowerCase() === statement.bank.toLowerCase()
-          && c.currency === statement.currency
-      )
+      // Guard: if a card with this bank name + currency already exists — ACTIVE OR
+      // CLOSED — reuse it. The picker only lists active cards, so a closed card
+      // would otherwise get silently duplicated here.
+      const { data: nameMatches } = await supabase
+        .from('loans').select('*')
+        .eq('loan_type', 'credit_card')
+        .eq('currency', statement.currency)
+        .ilike('lender_name', statement.bank)
+      const alreadyExists = (nameMatches ?? [])[0] as Loan | undefined
       if (alreadyExists) {
+        if (alreadyExists.status !== 'active') {
+          const { error: reopenErr } = await supabase
+            .from('loans').update({ status: 'active' }).eq('id', alreadyExists.id)
+          if (reopenErr) throw new Error(`Could not reactivate ${alreadyExists.lender_name}: ${reopenErr.message}`)
+          alreadyExists.status = 'active'
+        }
+        setCards(prev => prev.some(c => c.id === alreadyExists.id) ? prev : [...prev, alreadyExists])
         const dup = await checkDuplicate(alreadyExists)
         if (dup) { setExisting(dup); setSelectedCardId(alreadyExists.id); setStep('duplicate'); return }
         await runImport(alreadyExists)

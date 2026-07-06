@@ -102,11 +102,14 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
   for (const l of loanStats.filter(s => s.outstandingPrincipal > 0)) {
     const t = l.loan.loan_type
     if (!typeMap[t]) typeMap[t] = { value: 0, color: LOAN_TYPE_COLORS[t] ?? '#94a3b8', label: LOAN_TYPE_LABELS[t] ?? t, count: 0 }
-    typeMap[t].value += Math.round(toView(l.outstandingPrincipal + l.accruedInterest, l.loan.currency))
+    // Accumulate unrounded — rounding per loan made the donut total drift ₹1 off the Total Debt KPI
+    typeMap[t].value += toView(l.outstandingPrincipal + l.accruedInterest, l.loan.currency)
     typeMap[t].count++
   }
-  const donutData = Object.values(typeMap).sort((a, b) => b.value - a.value)
-  const donutTotal = donutData.reduce((s, d) => s + d.value, 0)
+  const donutData = Object.values(typeMap)
+    .map(d => ({ ...d, value: Math.round(d.value) }))
+    .sort((a, b) => b.value - a.value)
+  const donutTotal = Math.round(Object.values(typeMap).reduce((s, d) => s + d.value, 0))
 
   // Monthly outflow (next 12 months) — single viewCurrency, from all schedule rows.
   // Skipped rows aren't owed; partial rows only owe the remainder.
@@ -241,8 +244,21 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
     .filter(l => l.isOverdue)
     .sort((a, b) => (a.nextDueDate ?? '').localeCompare(b.nextDueDate ?? ''))
 
-  // Total amount due in next 30 days
-  const totalDue30 = upcomingFixed.reduce((s, l) => s + toView(l.nextDueAmount, l.loan.currency), 0)
+  // Total due in next 30 days — from ALL unpaid rows in the window, not just each
+  // loan's first pending row (a loan with an overdue EMI also owes the next one)
+  let totalDue30 = 0
+  let due30Count = 0
+  for (const row of schedules) {
+    if (row.status !== 'pending' && row.status !== 'partial') continue
+    if (row.contractual_due_date < today || row.contractual_due_date > in30) continue
+    const loan = loans.find(l => l.id === row.loan_id)
+    if (!loan || loan.status !== 'active') continue
+    const owed = row.status === 'partial'
+      ? Math.max(0, row.emi_amount - (row.amount_paid ?? 0))
+      : row.emi_amount
+    totalDue30 += toView(owed, loan.currency)
+    due30Count++
+  }
 
   const sym = CURRENCY_SYMBOLS[viewCurrency]
 
@@ -352,7 +368,7 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                 <p className="text-xs text-gray-500">Due Next 30 Days</p>
                 <p className="text-2xl font-bold mt-1 text-orange-500">{sym}{Math.round(totalDue30).toLocaleString()}</p>
                 <p className="text-xs text-gray-400 mt-1">
-                  {upcomingFixed.length} payment{upcomingFixed.length !== 1 ? 's' : ''}
+                  {due30Count} payment{due30Count !== 1 ? 's' : ''}
                   {overdueFixed.length > 0 && (
                     <span className="text-red-500">
                       {' '}+ {sym}{Math.round(overdueFixed.reduce((s, l) => s + toView(l.nextDueAmount, l.loan.currency), 0)).toLocaleString()} overdue
@@ -365,7 +381,11 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               <CardContent className="pt-4">
                 <p className="text-xs text-gray-500">Debt-Free Date</p>
                 <p className="text-lg font-bold mt-1 text-indigo-600 leading-tight">{debtFreeDateFmt ?? '—'}</p>
-                <p className="text-xs text-gray-400 mt-1">{debtFreeDateFmt === 'Ongoing' ? 'flexible loan active' : 'last scheduled EMI'}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {debtFreeDateFmt === 'Ongoing' ? 'flexible loan active'
+                    : hasActiveFlexible ? 'last EMI · family loans excl.'
+                    : 'last scheduled EMI'}
+                </p>
               </CardContent>
             </Card>
           </div>
