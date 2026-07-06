@@ -173,10 +173,6 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
           for (const row of skipped ?? []) {
             if (row.amount_paid != null) continue // genuinely skipped-with-payment stays
             await supabase.from('payment_schedules').update({ status: 'pending' }).eq('id', row.id)
-            await supabase.from('payments')
-              .update({ status: 'pending', paid_date: null })
-              .eq('loan_id', loan.id)
-              .eq('due_date', row.contractual_due_date)
           }
         }
         await supabase.from('loans').update({ status: 'active' }).eq('id', loan.id)
@@ -200,17 +196,12 @@ export default function LoanDetailClient({ loan, scheduleRows, transactions, pla
           setCloseConfirm(true)
           return
         }
-        // Force close: mark remaining rows as skipped (legacy payments table
-        // mirrors 'skipped' — never falsify them as 'paid')
+        // Force close: mark remaining rows as skipped
         setCloseBusy(true)
         for (const row of unpaid) {
           await supabase.from('payment_schedules')
             .update({ status: 'skipped' })
             .eq('id', row.id)
-          await supabase.from('payments')
-            .update({ status: 'skipped' })
-            .eq('loan_id', loan.id)
-            .eq('due_date', row.contractual_due_date)
         }
       }
     } else if (familyState && familyState.outstandingPrincipal > 0.01) {

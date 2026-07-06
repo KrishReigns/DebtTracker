@@ -148,8 +148,10 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
       const ls = loanStats.find(s => s.loan.id === loan.id)
       if (!ls) continue
       if (loan.repayment_mode === 'flexible_manual') {
-        // Family loans: use current outstanding (no schedule, assume static for projection)
-        total += toView(ls.outstandingPrincipal + ls.accruedInterest, loan.currency)
+        // Family loans accrue simple interest daily — project that growth forward
+        // (linear on outstanding principal; these loans don't compound)
+        const monthlyAccrual = ls.outstandingPrincipal * loan.interest_rate / 100 / 12
+        total += toView(ls.outstandingPrincipal + ls.accruedInterest + monthlyAccrual * i, loan.currency)
       } else {
         // Fixed-EMI / CC: find opening_balance of earliest pending row due >= this month
         const upcoming = pendingRows
@@ -629,7 +631,7 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                         </p>
                       )}
                       <p className="text-[10px] text-emerald-600 mt-0.5">
-                        with {sym}{extraMonthly.toLocaleString()} extra per month · <span className="text-slate-400">green dashed line · approximation, family-loan interest not compounded</span>
+                        with {sym}{extraMonthly.toLocaleString()} extra per month · <span className="text-slate-400">green dashed line · approximation, incl. simple interest on family loans</span>
                       </p>
                     </div>
                   </div>

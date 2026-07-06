@@ -352,12 +352,6 @@ export default function ImportPage() {
           loan.principal, loan.interest_rate, loan.tenure_months,
           loan.start_date, loan.interest_type, emi ?? undefined
         )
-        const { error: paymentsErr } = await supabase.from('payments').insert(schedule.map(row => ({
-          loan_id: inserted.id, due_date: row.date, amount_due: row.emi,
-          principal_component: row.principal, interest_component: row.interest, status: 'pending',
-        })))
-        if (paymentsErr) console.warn('payments insert failed for loan', inserted.id, paymentsErr.message)
-
         const { error: scheduleErr } = await supabase.from('payment_schedules').insert(schedule.map((row, i) => ({
           loan_id: inserted.id, installment_number: i + 1,
           contractual_due_date: row.date, opening_balance: row.openingBalance,

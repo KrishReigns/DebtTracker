@@ -136,17 +136,6 @@ export async function markScheduleRowPaid(
     .eq('id', scheduleRowId)
   if (updErr) throw new Error(`Schedule update failed: ${updErr.message}`)
 
-  // Sync legacy payments table
-  await supabase
-    .from('payments')
-    .update({
-      status: isFullPayment ? 'paid' : 'partial',
-      paid_date: paymentDate,
-      amount_paid: paidAmount,
-    })
-    .eq('loan_id', loanId)
-    .eq('due_date', contractualDueDate)
-
   await syncLoanStatus(loanId, supabase)
 }
 
@@ -168,12 +157,6 @@ export async function markScheduleRowUnpaid(
     .from('payment_transactions')
     .delete()
     .eq('schedule_row_id', scheduleRowId)
-
-  await supabase
-    .from('payments')
-    .update({ status: 'pending', paid_date: null, amount_paid: null })
-    .eq('loan_id', loanId)
-    .eq('due_date', contractualDueDate)
 
   await syncLoanStatus(loanId, supabase)
 }

@@ -201,12 +201,7 @@ export default function LoanForm({ loan }: Props) {
           form.interest_type, parseFloat(form.emi_amount) || autoEMI || undefined,
           form.first_emi_date || undefined)
 
-        const payments = fullSchedule.map(row => ({
-          loan_id: loanId, due_date: row.date, amount_due: row.emi,
-          principal_component: row.principal, interest_component: row.interest, status: 'pending' as const,
-        }))
-        await supabase.from('payments').insert(payments)
-
+        // (legacy `payments` table retired — payment_schedules is the only schedule store)
         const scheduleRows = fullSchedule.map((row, i) => ({
           loan_id: loanId, installment_number: i + 1, contractual_due_date: row.date,
           opening_balance: row.openingBalance, emi_amount: row.emi,
