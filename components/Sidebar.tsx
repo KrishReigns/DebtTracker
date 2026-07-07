@@ -3,14 +3,15 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { LayoutDashboard, Landmark, CalendarClock, FileUp, LogOut, Wallet } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 
 const NAV = [
-  { href: '/dashboard', label: 'Dashboard',   icon: '📊' },
-  { href: '/loans',     label: 'Loans',       icon: '🏦' },
-  { href: '/payments',  label: 'Payments',    icon: '📅' },
-  { href: '/import',    label: 'Import Sheet',icon: '📥' },
+  { href: '/dashboard', label: 'Dashboard',    icon: LayoutDashboard },
+  { href: '/loans',     label: 'Loans',        icon: Landmark },
+  { href: '/payments',  label: 'Payments',     icon: CalendarClock },
+  { href: '/import',    label: 'Import Sheet', icon: FileUp },
 ]
 
 function Avatar({ src, initials, large = false }: { src: string | null; initials: string; large?: boolean }) {
@@ -36,7 +37,7 @@ function Avatar({ src, initials, large = false }: { src: string | null; initials
 function NavLinks({ pathname, onNavigate, overdueCount }: { pathname: string; onNavigate?: () => void; overdueCount: number }) {
   return (
     <nav className="flex-1 p-3 space-y-1">
-      {NAV.map(({ href, label, icon }) => {
+      {NAV.map(({ href, label, icon: Icon }) => {
         const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href))
         const showBadge = href === '/payments' && overdueCount > 0
         return (
@@ -45,13 +46,16 @@ function NavLinks({ pathname, onNavigate, overdueCount }: { pathname: string; on
             href={href}
             onClick={onNavigate}
             className={cn(
-              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+              'relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
               active
                 ? 'bg-indigo-50 text-indigo-700'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 hover:translate-x-0.5'
             )}
           >
-            <span className="text-base">{icon}</span>
+            {active && (
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-indigo-600" />
+            )}
+            <Icon className={cn('w-4 h-4 shrink-0', active ? 'text-indigo-600' : 'text-gray-400')} strokeWidth={2} />
             <span className="flex-1">{label}</span>
             {showBadge && (
               <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center">
@@ -107,9 +111,20 @@ export default function Sidebar({
     </Link>
   )
 
+  const brand = (
+    <div className="flex items-center gap-2.5">
+      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm shrink-0">
+        <Wallet className="w-4.5 h-4.5 text-white" strokeWidth={2.2} />
+      </div>
+      <span className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
+        DebtTracker
+      </span>
+    </div>
+  )
+
   const header = (
     <div className="p-4 border-b border-gray-200 space-y-3">
-      <div className="text-xl font-bold text-gray-900">💰 DebtTracker</div>
+      {brand}
       {profileTrigger}
     </div>
   )
@@ -120,7 +135,7 @@ export default function Sidebar({
         onClick={signOut}
         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
       >
-        <span>🚪</span> Sign Out
+        <LogOut className="w-4 h-4 text-gray-400" /> Sign Out
       </button>
     </div>
   )
@@ -145,7 +160,12 @@ export default function Sidebar({
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <span className="font-bold text-gray-900 text-base flex-1">💰 DebtTracker</span>
+        <span className="flex items-center gap-2 flex-1">
+          <span className="w-6 h-6 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
+            <Wallet className="w-3.5 h-3.5 text-white" strokeWidth={2.2} />
+          </span>
+          <span className="font-bold text-base bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">DebtTracker</span>
+        </span>
         <Link href="/profile" className="block rounded-full hover:ring-2 hover:ring-indigo-300 transition-all">
           <Avatar src={avatarUrl} initials={initials} />
         </Link>

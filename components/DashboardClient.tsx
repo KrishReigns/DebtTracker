@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { Scale, PiggyBank, CalendarClock, Flag, AlertTriangle } from 'lucide-react'
 import { format, addMonths, differenceInMonths } from 'date-fns'
 import { computeFamilyLoanState, formatCurrency, convertCurrency } from '@/lib/calculations'
 import { LOAN_TYPE_LABELS, LOAN_TYPE_COLORS, CURRENCY_SYMBOLS } from '@/lib/types'
@@ -27,6 +28,32 @@ interface LoanStats {
   nextDueDate: string | null
   nextDueAmount: number
   isOverdue: boolean
+}
+
+/** Ease a number toward its target — KPI count-up. Respects prefers-reduced-motion. */
+function useCountUp(target: number, ms = 700): number {
+  const [display, setDisplay] = useState(target)
+  const prevRef = useRef(0)
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      prevRef.current = target
+      setDisplay(target)
+      return
+    }
+    const from = prevRef.current
+    const start = performance.now()
+    let raf = 0
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / ms)
+      const eased = 1 - Math.pow(1 - t, 3)
+      setDisplay(from + (target - from) * eased)
+      if (t < 1) raf = requestAnimationFrame(tick)
+      else prevRef.current = target
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, ms])
+  return display
 }
 
 export default function DashboardClient({ loans, schedules, transactions, exchangeRates }: Props) {
@@ -277,6 +304,11 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
   // Interest that has accrued but not yet been paid (family loans only)
   const totalAccruedInterest = loanStats.reduce((s, l) => s + toView(l.accruedInterest, l.loan.currency), 0)
 
+  // Animated KPI numbers
+  const totalDebtAnim = useCountUp(totalDebt)
+  const totalRepaidAnim = useCountUp(totalRepaid)
+  const totalDue30Anim = useCountUp(totalDue30)
+
   // Debt-free date — latest due date among unpaid rows (pending + partial)
   const pendingDates = schedules
     .filter(s => s.status === 'pending' || s.status === 'partial')
@@ -325,7 +357,11 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
         return (
           <Link href="/payments" className="block">
             <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 hover:bg-red-100 transition-colors cursor-pointer">
-              <span className="text-xl mt-0.5">🚨</span>
+              <span className="relative flex w-8 h-8 shrink-0 mt-0.5 items-center justify-center rounded-lg bg-red-100">
+                <span className="absolute inline-flex h-2 w-2 -top-0.5 -right-0.5 rounded-full bg-red-500 animate-ping" />
+                <span className="absolute inline-flex h-2 w-2 -top-0.5 -right-0.5 rounded-full bg-red-500" />
+                <AlertTriangle className="w-4 h-4 text-red-600" />
+              </span>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-red-700 text-sm">
                   {overdue.length} overdue EMI{overdue.length > 1 ? 's' : ''} — immediate attention needed
@@ -351,24 +387,39 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
         <>
           {/* KPI cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card>
+            <Card className="transition-shadow duration-200 hover:shadow-md">
               <CardContent className="pt-4">
-                <p className="text-xs text-gray-500">Total Debt</p>
-                <p className="text-2xl font-bold mt-1 text-red-600">{sym}{Math.round(totalDebt).toLocaleString()}</p>
+                <div className="flex items-start justify-between">
+                  <p className="text-xs text-gray-500">Total Debt</p>
+                  <span className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+                    <Scale className="w-3.5 h-3.5 text-red-500" />
+                  </span>
+                </div>
+                <p className="text-2xl font-bold text-red-600 tabular-nums">{sym}{Math.round(totalDebtAnim).toLocaleString()}</p>
                 <p className="text-xs text-gray-400 mt-1">incl. accrued interest</p>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="transition-shadow duration-200 hover:shadow-md">
               <CardContent className="pt-4">
-                <p className="text-xs text-gray-500">Repaid So Far</p>
-                <p className="text-2xl font-bold mt-1 text-green-600">{sym}{Math.round(totalRepaid).toLocaleString()}</p>
+                <div className="flex items-start justify-between">
+                  <p className="text-xs text-gray-500">Repaid So Far</p>
+                  <span className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0">
+                    <PiggyBank className="w-3.5 h-3.5 text-emerald-500" />
+                  </span>
+                </div>
+                <p className="text-2xl font-bold text-green-600 tabular-nums">{sym}{Math.round(totalRepaidAnim).toLocaleString()}</p>
                 <p className="text-xs text-gray-400 mt-1">{progressPct}% of borrowed principal</p>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="transition-shadow duration-200 hover:shadow-md">
               <CardContent className="pt-4">
-                <p className="text-xs text-gray-500">Due Next 30 Days</p>
-                <p className="text-2xl font-bold mt-1 text-orange-500">{sym}{Math.round(totalDue30).toLocaleString()}</p>
+                <div className="flex items-start justify-between">
+                  <p className="text-xs text-gray-500">Due Next 30 Days</p>
+                  <span className="w-7 h-7 rounded-lg bg-orange-50 flex items-center justify-center shrink-0">
+                    <CalendarClock className="w-3.5 h-3.5 text-orange-500" />
+                  </span>
+                </div>
+                <p className="text-2xl font-bold text-orange-500 tabular-nums">{sym}{Math.round(totalDue30Anim).toLocaleString()}</p>
                 <p className="text-xs text-gray-400 mt-1">
                   {due30Count} payment{due30Count !== 1 ? 's' : ''}
                   {overdueFixed.length > 0 && (
@@ -379,10 +430,15 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                 </p>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="transition-shadow duration-200 hover:shadow-md">
               <CardContent className="pt-4">
-                <p className="text-xs text-gray-500">Debt-Free Date</p>
-                <p className="text-lg font-bold mt-1 text-indigo-600 leading-tight">{debtFreeDateFmt ?? '—'}</p>
+                <div className="flex items-start justify-between">
+                  <p className="text-xs text-gray-500">Debt-Free Date</p>
+                  <span className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0">
+                    <Flag className="w-3.5 h-3.5 text-indigo-500" />
+                  </span>
+                </div>
+                <p className="text-lg font-bold text-indigo-600 leading-tight">{debtFreeDateFmt ?? '—'}</p>
                 <p className="text-xs text-gray-400 mt-1">
                   {debtFreeDateFmt === 'Ongoing' ? 'flexible loan active'
                     : hasActiveFlexible ? 'last EMI · family loans excl.'
@@ -401,7 +457,7 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               </div>
               <div className="w-full bg-gray-100 rounded-full h-3">
                 <div
-                  className="bg-gradient-to-r from-indigo-500 to-emerald-500 h-3 rounded-full transition-all duration-500"
+                  className="progress-shimmer relative overflow-hidden bg-gradient-to-r from-indigo-500 to-emerald-500 h-3 rounded-full transition-all duration-700"
                   style={{ width: `${progressPct}%` }}
                 />
               </div>

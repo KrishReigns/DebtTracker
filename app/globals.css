@@ -128,3 +128,23 @@
     @apply font-sans;
   }
 }
+
+/* ── Micro-interactions ─────────────────────────────────────────────── */
+
+/* Light sweep across the repayment progress bar */
+@keyframes shimmer-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.progress-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 33%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  animation: shimmer-sweep 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-shimmer::after { animation: none; }
+}

@@ -135,8 +135,11 @@ export default async function LoansPage() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {active.map(loan => (
-          <LoanCard key={loan.id} loan={loan} summary={summaries[loan.id]} />
+        {active.map((loan, i) => (
+          <div key={loan.id} className="animate-in fade-in slide-in-from-bottom-2 fill-mode-backwards"
+            style={{ animationDelay: `${Math.min(i * 60, 480)}ms`, animationDuration: '400ms' }}>
+            <LoanCard loan={loan} summary={summaries[loan.id]} />
+          </div>
         ))}
       </div>
 
