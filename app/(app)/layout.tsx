@@ -37,7 +37,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         avatarUrl={avatarUrl}
         overdueCount={overdueCount ?? 0}
       />
-      <main className="flex-1 overflow-y-auto">
+      {/* min-w-0 lets this flex child shrink below its content width — without it a
+          single wide descendant (a chart, a long number) blows past the viewport and
+          mobile browsers shrink-to-fit the whole page ("zoomed" look). overflow-x-hidden
+          is the safety net; wide tables scroll inside their own wrappers. */}
+      <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
         {/* Spacer for mobile top bar */}
         <div className="h-14 md:hidden" />
         <div className="max-w-6xl mx-auto p-4 md:p-6">
