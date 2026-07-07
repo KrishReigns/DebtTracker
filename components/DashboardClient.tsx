@@ -12,7 +12,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, AreaChart, Area, CartesianGrid } from 'recharts'
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, AreaChart, Area, CartesianGrid, Sector } from 'recharts'
+import type { PieSectorDataItem } from 'recharts/types/polar/Pie'
 
 interface Props {
   loans: Loan[]
@@ -28,6 +29,28 @@ interface LoanStats {
   nextDueDate: string | null
   nextDueAmount: number
   isOverdue: boolean
+}
+
+/** Enlarged sector for the hovered donut slice, with an outer accent ring. */
+function renderActiveSlice(props: PieSectorDataItem) {
+  const { cx, cy, innerRadius, outerRadius = 0, startAngle, endAngle, fill } = props
+  return (
+    <g>
+      <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 6}
+        startAngle={startAngle} endAngle={endAngle} fill={fill} />
+      <Sector cx={cx} cy={cy} innerRadius={outerRadius + 8} outerRadius={outerRadius + 11}
+        startAngle={startAngle} endAngle={endAngle} fill={fill} opacity={0.5} />
+    </g>
+  )
+}
+
+/** Dimmed sector for the non-hovered slices. */
+function renderInactiveSlice(props: PieSectorDataItem) {
+  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props
+  return (
+    <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius}
+      startAngle={startAngle} endAngle={endAngle} fill={fill} opacity={0.3} />
+  )
 }
 
 /** Ease a number toward its target — KPI count-up. Respects prefers-reduced-motion. */
@@ -59,6 +82,7 @@ function useCountUp(target: number, ms = 700): number {
 export default function DashboardClient({ loans, schedules, transactions, exchangeRates }: Props) {
   const [viewCurrency, setViewCurrency] = useState<'INR' | 'USD'>('INR')
   const [extraMonthly, setExtraMonthly] = useState(0)
+  const [activeSlice, setActiveSlice] = useState<number | null>(null)
   const today = todayISO()
 
   function getRate(from: 'INR' | 'USD', to: 'INR' | 'USD'): number {
@@ -304,10 +328,26 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
   // Interest that has accrued but not yet been paid (family loans only)
   const totalAccruedInterest = loanStats.reduce((s, l) => s + toView(l.accruedInterest, l.loan.currency), 0)
 
+  // "Cost of waiting" — interest accruing across all active debt each month.
+  // Family loans: simple interest on outstanding. Fixed-EMI: interest slice of
+  // the current pending installment.
+  const monthlyInterestCost = loanStats.reduce((s, l) => {
+    if (l.loan.status !== 'active') return s
+    if (l.loan.repayment_mode === 'flexible_manual') {
+      return s + toView(l.outstandingPrincipal * l.loan.interest_rate / 100 / 12, l.loan.currency)
+    }
+    const nextRow = schedules
+      .filter(r => r.loan_id === l.loan.id && (r.status === 'pending' || r.status === 'partial'))
+      .sort((a, b) => a.installment_number - b.installment_number)[0]
+    return s + (nextRow ? toView(nextRow.interest_amount, l.loan.currency) : 0)
+  }, 0)
+  const dailyInterestCost = monthlyInterestCost * 12 / 365
+
   // Animated KPI numbers
   const totalDebtAnim = useCountUp(totalDebt)
   const totalRepaidAnim = useCountUp(totalRepaid)
   const totalDue30Anim = useCountUp(totalDue30)
+  const monthlyInterestAnim = useCountUp(monthlyInterestCost)
 
   // Debt-free date — latest due date among unpaid rows (pending + partial)
   const pendingDates = schedules
@@ -319,6 +359,7 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
   const debtFreeDateFmt = debtFreeDate
     ? new Date(debtFreeDate).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
     : hasActiveFlexible ? 'Ongoing' : null
+  const monthsToDebtFree = debtFreeDate ? Math.max(0, differenceInMonths(new Date(debtFreeDate), now)) : null
 
   // Y-axis formatter — lakhs for INR, K/M for USD
   function fmtAxis(v: number) {
@@ -385,6 +426,47 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
         </div>
       ) : (
         <>
+          {/* Hero banner — debt-free countdown + cost-of-waiting ticker */}
+          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 px-6 py-6 text-white shadow-lg">
+            {/* Decorative blurred blobs */}
+            <div className="pointer-events-none absolute -top-16 -right-10 h-52 w-52 rounded-full bg-white/10 blur-2xl" />
+            <div className="pointer-events-none absolute -bottom-20 left-1/3 h-48 w-48 rounded-full bg-fuchsia-300/20 blur-2xl" />
+
+            <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+              {/* Debt-free countdown */}
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-wider text-white/70">Projected debt-free</p>
+                <p className="mt-1 text-3xl font-bold leading-none sm:text-4xl">{debtFreeDateFmt ?? '—'}</p>
+                <p className="mt-1.5 text-sm text-white/80">
+                  {monthsToDebtFree != null
+                    ? <>{monthsToDebtFree} month{monthsToDebtFree !== 1 ? 's' : ''} to go{hasActiveFlexible && ' · scheduled loans (family excl.)'}</>
+                    : hasActiveFlexible ? 'family loans have no fixed end date' : 'no scheduled payments'}
+                </p>
+                {/* progress toward payoff */}
+                <div className="mt-3 flex items-center gap-2.5">
+                  <div className="h-1.5 w-40 max-w-full overflow-hidden rounded-full bg-white/20">
+                    <div className="progress-shimmer relative h-1.5 overflow-hidden rounded-full bg-white transition-all duration-700"
+                      style={{ width: `${progressPct}%` }} />
+                  </div>
+                  <span className="text-xs font-semibold text-white/90">{progressPct}% repaid</span>
+                </div>
+              </div>
+
+              {/* Cost of waiting */}
+              <div className="shrink-0 rounded-xl bg-white/10 px-5 py-4 backdrop-blur-sm ring-1 ring-white/15">
+                <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-white/70">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Cost of waiting
+                </div>
+                <p className="mt-1 text-2xl font-bold tabular-nums">
+                  {sym}{Math.round(monthlyInterestAnim).toLocaleString()}<span className="text-base font-medium text-white/70">/mo</span>
+                </p>
+                <p className="mt-0.5 text-xs text-white/70">
+                  ≈ {sym}{Math.round(dailyInterestCost).toLocaleString()}/day in interest across all debt
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* KPI cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Card className="transition-shadow duration-200 hover:shadow-md">
@@ -497,30 +579,57 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
               </CardHeader>
               <CardContent className="pt-0 flex flex-col flex-1">
                 {/* Chart fills available space, min height so it looks good standalone */}
-                <div className="flex-1 min-h-[180px]">
+                <div className="relative flex-1 min-h-[180px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={donutData} dataKey="value" innerRadius={50} outerRadius={80} paddingAngle={3} startAngle={90} endAngle={-270}>
-                        {donutData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                      <Pie
+                        data={donutData} dataKey="value" innerRadius={52} outerRadius={80}
+                        paddingAngle={3} startAngle={90} endAngle={-270}
+                        activeShape={renderActiveSlice}
+                        inactiveShape={renderInactiveSlice}
+                        onMouseEnter={(_, i) => setActiveSlice(i)}
+                        onMouseLeave={() => setActiveSlice(null)}
+                      >
+                        {donutData.map((entry, i) => (
+                          <Cell key={i} fill={entry.color}
+                            style={{ cursor: 'pointer', outline: 'none' }} />
+                        ))}
                       </Pie>
-                      <Tooltip
-                        formatter={(v) => [`${sym}${Number(v).toLocaleString()}`, 'Outstanding']}
-                        contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
-                      />
                     </PieChart>
                   </ResponsiveContainer>
+                  {/* Center label — total, or the hovered slice */}
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                    {(() => {
+                      const shown = activeSlice != null ? donutData[activeSlice] : null
+                      const val = shown ? shown.value : donutTotal
+                      const pct = donutTotal > 0 && shown ? Math.round((shown.value / donutTotal) * 100) : null
+                      return (
+                        <>
+                          <p className="text-lg font-bold text-slate-800 leading-none tabular-nums">
+                            {val >= 1000 ? `${sym}${fmtAxis(val)}` : `${sym}${val.toLocaleString()}`}
+                          </p>
+                          <p className="mt-1 max-w-[90px] truncate text-center text-[10px] text-slate-400">
+                            {shown ? `${shown.label}${pct != null ? ` · ${pct}%` : ''}` : 'total outstanding'}
+                          </p>
+                        </>
+                      )
+                    })()}
+                  </div>
                 </div>
-                {/* Legend pinned below chart */}
-                <div className="shrink-0 space-y-2 pt-2">
-                  <p className="text-[10px] text-slate-400">% share of total debt</p>
+                {/* Legend pinned below chart — hover to highlight the matching slice */}
+                <div className="shrink-0 space-y-1 pt-2">
+                  <p className="text-[10px] text-slate-400">% share of total debt · hover to focus</p>
                   {donutData.map((d, i) => {
                     const pct = donutTotal > 0 ? Math.round((d.value / donutTotal) * 100) : 0
                     return (
-                      <div key={i} className="flex items-center gap-2 text-xs">
-                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+                      <div key={i}
+                        onMouseEnter={() => setActiveSlice(i)}
+                        onMouseLeave={() => setActiveSlice(null)}
+                        className={`flex items-center gap-2 text-xs rounded-md px-1.5 py-1 -mx-1.5 cursor-default transition-colors ${activeSlice === i ? 'bg-slate-50' : ''}`}>
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0 transition-transform" style={{ background: d.color, transform: activeSlice === i ? 'scale(1.35)' : 'scale(1)' }} />
                         <span className="text-gray-600 flex-1 truncate">{d.label}{d.count > 1 ? ` ×${d.count}` : ''}</span>
                         <div className="w-16 bg-slate-100 rounded-full h-1.5 shrink-0">
-                          <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: d.color }} />
+                          <div className="h-1.5 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: d.color }} />
                         </div>
                         <span className="text-slate-400 w-7 text-right">{pct}%</span>
                         <span className="font-semibold text-slate-700 w-20 text-right">
@@ -553,7 +662,17 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                 {/* Chart grows to fill — matches donut card height automatically */}
                 <div className="flex-1 min-h-[180px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={monthlyOutflow} barSize={20} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+                    <BarChart data={monthlyOutflow} barSize={22} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#818cf8" />
+                          <stop offset="100%" stopColor="#6366f1" />
+                        </linearGradient>
+                        <linearGradient id="barGradPeak" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#c084fc" />
+                          <stop offset="100%" stopColor="#9333ea" />
+                        </linearGradient>
+                      </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                       <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={fmtAxis} axisLine={false} tickLine={false} />
@@ -562,7 +681,12 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                         contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
                         cursor={{ fill: '#f8fafc' }}
                       />
-                      <Bar dataKey="amount" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="amount" radius={[4, 4, 0, 0]} animationDuration={800}>
+                        {monthlyOutflow.map((m, i) => {
+                          const peak = Math.max(...monthlyOutflow.map(x => x.amount))
+                          return <Cell key={i} fill={m.amount === peak && peak > 0 ? 'url(#barGradPeak)' : 'url(#barGrad)'} />
+                        })}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -657,11 +781,13 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
                         ]}
                         contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}
                       />
-                      <Area type="monotone" dataKey="current" stroke="#6366f1" strokeWidth={2}
-                        fill="url(#debtGrad)" dot={false} />
+                      <Area type="monotone" dataKey="current" stroke="#6366f1" strokeWidth={2.5}
+                        fill="url(#debtGrad)" dot={false} activeDot={{ r: 4, strokeWidth: 2 }}
+                        animationDuration={1100} animationEasing="ease-out" />
                       {accelTrajectory && (
-                        <Area type="monotone" dataKey="accelerated" stroke="#10b981" strokeWidth={2}
-                          strokeDasharray="6 3" fill="url(#accelGrad)" dot={false} />
+                        <Area type="monotone" dataKey="accelerated" stroke="#10b981" strokeWidth={2.5}
+                          strokeDasharray="6 3" fill="url(#accelGrad)" dot={false} activeDot={{ r: 4, strokeWidth: 2 }}
+                          animationDuration={1100} animationEasing="ease-out" />
                       )}
                     </AreaChart>
                   </ResponsiveContainer>
