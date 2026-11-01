@@ -328,18 +328,14 @@ export default function DashboardClient({ loans, schedules, transactions, exchan
   // Interest that has accrued but not yet been paid (family loans only)
   const totalAccruedInterest = loanStats.reduce((s, l) => s + toView(l.accruedInterest, l.loan.currency), 0)
 
-  // "Cost of waiting" — interest accruing across all active debt each month.
-  // Family loans: simple interest on outstanding. Fixed-EMI: interest slice of
-  // the current pending installment.
+  // "Cost of waiting" — interest accruing on the LIVE balance each month, for
+  // every active loan: outstanding × annual rate ÷ 12. Uniform across reducing,
+  // bullet and family. (Previously read a fixed-EMI row's interest_amount, which
+  // for a bullet loan is the WHOLE-TERM interest, not one month — it overstated
+  // bullets ~10× and nearly tripled this figure.)
   const monthlyInterestCost = loanStats.reduce((s, l) => {
     if (l.loan.status !== 'active') return s
-    if (l.loan.repayment_mode === 'flexible_manual') {
-      return s + toView(l.outstandingPrincipal * l.loan.interest_rate / 100 / 12, l.loan.currency)
-    }
-    const nextRow = schedules
-      .filter(r => r.loan_id === l.loan.id && (r.status === 'pending' || r.status === 'partial'))
-      .sort((a, b) => a.installment_number - b.installment_number)[0]
-    return s + (nextRow ? toView(nextRow.interest_amount, l.loan.currency) : 0)
+    return s + toView(l.outstandingPrincipal * l.loan.interest_rate / 100 / 12, l.loan.currency)
   }, 0)
   const dailyInterestCost = monthlyInterestCost * 12 / 365
 
